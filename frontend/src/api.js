@@ -121,6 +121,30 @@ export async function updatePrestadorConfig(payload) {
   return response.data
 }
 
+// --- Captura NFS-e Nacional ---
+export async function executarCaptura() {
+  const response = await request('/captura/executar', { method: 'POST' })
+  return response
+}
+
+export async function fetchCapturaHistorico(limit = 20) {
+  const response = await request(`/captura/historico?limit=${limit}`)
+  return response.data
+}
+
+export async function fetchCapturaStatus() {
+  const response = await request('/captura/status')
+  return response.data
+}
+
+export async function uploadCertificado(pfxBase64, senha) {
+  const response = await request('/captura/certificado/upload', {
+    method: 'POST',
+    body: JSON.stringify({ pfxBase64, senha }),
+  })
+  return response
+}
+
 // --- XML Logs ---
 export async function fetchXmlLogs(filters = {}) {
   const params = new URLSearchParams()

@@ -8,12 +8,14 @@ import Importar from './pages/Importar'
 import Emissao from './pages/Emissao'
 import Configuracoes from './pages/Configuracoes'
 import XmlHistorico from './pages/XmlHistorico'
+import Captura from './pages/Captura'
 import './App.css'
 
 const PAGE_LABELS = {
   dashboard: 'Dashboard',
   notas: 'Notas Fiscais',
   tomadores: 'Tomadores',
+  captura: 'Captura NFS-e',
   importar: 'Importar',
   emissao: 'Emissao ABRASF',
   xml: 'Historico XML',
@@ -24,6 +26,7 @@ const ICONS = {
   chart: <><polyline points="15 8 12 8 10 14 6 2 4 8 1 8"/></>,
   file: <><path d="M9 2H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V6L9 2z"/><polyline points="9 2 9 6 13 6"/></>,
   users: <><path d="M11 14v-1.5A2.5 2.5 0 0 0 8.5 10h-4A2.5 2.5 0 0 0 2 12.5V14"/><circle cx="6.5" cy="5.5" r="2.5"/><path d="M14 14v-1.3a2.5 2.5 0 0 0-1.9-2.4M11 2.3a2.5 2.5 0 0 1 0 4.8"/></>,
+  download: <><path d="M14 10v3a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1v-3"/><polyline points="4 7 8 11 12 7"/><line x1="8" y1="3" x2="8" y2="11"/></>,
   upload: <><path d="M14 10v3a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1v-3"/><polyline points="8 2 12 6 8 6"/><line x1="8" y1="2" x2="8" y2="10"/></>,
   send: <><line x1="14" y1="2" x2="7" y2="9"/><polygon points="14 2 9 14 7 9 2 7 14 2"/></>,
   code: <><polyline points="4 6 1 8 4 10"/><polyline points="12 6 15 8 12 10"/><line x1="10" y1="3" x2="6" y2="13"/></>,
@@ -53,6 +56,7 @@ export default function App() {
       case 'notas': return <NotasFiscais tomadores={tomadores} onRefresh={loadBootstrap} />
       case 'tomadores': return <Tomadores onRefresh={loadBootstrap} />
       case 'importar': return <Importar />
+      case 'captura': return <Captura />
       case 'emissao': return <Emissao prestador={prestador} />
       case 'config': return <Configuracoes onRefresh={loadBootstrap} />
       case 'xml': return <XmlHistorico />

@@ -8,3 +8,4 @@ httpx==0.28.1
 pandas==2.2.3
 openpyxl==3.1.5
 psycopg2-binary==2.9.10
+cryptography==44.0.0

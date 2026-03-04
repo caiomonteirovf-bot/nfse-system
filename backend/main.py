@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from backend.database import init_db, get_db
 from backend.models.tomador import Tomador
 from backend.models.prestador import PrestadorConfig
-from backend.routers import tomadores, nfses, emissao, prestador, xml_logs
+from backend.routers import tomadores, nfses, emissao, prestador, xml_logs, captura
 
 app = FastAPI(title="NFS-e System API", version="1.0.0")
 
@@ -40,6 +40,7 @@ app.include_router(nfses.router, prefix="/api")
 app.include_router(emissao.router, prefix="/api")
 app.include_router(prestador.router, prefix="/api")
 app.include_router(xml_logs.router, prefix="/api")
+app.include_router(captura.router, prefix="/api")
 
 
 @app.get("/api/health")

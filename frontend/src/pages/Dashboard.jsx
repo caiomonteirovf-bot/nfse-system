@@ -135,6 +135,10 @@ export default function Dashboard() {
               <p className="kpi-card__value">{kpis.cargaTributariaMedia}%</p>
             </article>
             <article className="kpi-card" style={{ '--item-index': 5 }}>
+              <div className="kpi-card__header"><p className="kpi-card__label">Capturadas</p></div>
+              <p className="kpi-card__value">{formatNumber(kpis.notasCapturadas || 0)}</p>
+            </article>
+            <article className="kpi-card" style={{ '--item-index': 6 }}>
               <div className="kpi-card__header"><p className="kpi-card__label">Canceladas</p></div>
               <p className="kpi-card__value">{formatNumber(kpis.notasCanceladas)}</p>
             </article>

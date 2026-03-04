@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import String, Float, Integer, Boolean, DateTime
+from sqlalchemy import String, Float, Integer, BigInteger, Boolean, DateTime, LargeBinary
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.database import Base
@@ -30,8 +30,19 @@ class PrestadorConfig(Base):
     # ABRASF / Webservice
     webservice_url: Mapped[str] = mapped_column(String(500), default="")
     certificado_path: Mapped[str] = mapped_column(String(500), default="")
-    certificado_senha: Mapped[str] = mapped_column(String(200), default="")
     ambiente: Mapped[str] = mapped_column(String(20), default="HOMOLOGACAO")
+
+    # Certificado Digital A1
+    certificado_pfx: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    certificado_senha: Mapped[str] = mapped_column(String(500), default="")
+    certificado_validade: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    certificado_cnpj: Mapped[str] = mapped_column(String(20), default="")
+    certificado_status: Mapped[str] = mapped_column(String(20), default="")  # NO_PRAZO / A_VENCER / VENCIDO
+
+    # NFS-e Nacional
+    nfse_nacional_url: Mapped[str] = mapped_column(String(500), default="https://sefin.nfse.gov.br/SefinNacional")
+    adn_url: Mapped[str] = mapped_column(String(500), default="https://adn.nfse.gov.br")
+    ultimo_nsu: Mapped[int] = mapped_column(BigInteger, default=0)
 
     # Servico padrao
     item_lista_servico: Mapped[str] = mapped_column(String(10), default="")
@@ -67,6 +78,13 @@ class PrestadorConfig(Base):
             "webserviceUrl": self.webservice_url or "",
             "certificadoPath": self.certificado_path or "",
             "ambiente": self.ambiente or "HOMOLOGACAO",
+            "certificadoValidade": self.certificado_validade.isoformat() if self.certificado_validade else None,
+            "certificadoCnpj": self.certificado_cnpj or "",
+            "certificadoStatus": self.certificado_status or "",
+            "certificadoCarregado": self.certificado_pfx is not None,
+            "nfseNacionalUrl": self.nfse_nacional_url or "",
+            "adnUrl": self.adn_url or "",
+            "ultimoNsu": self.ultimo_nsu or 0,
             "itemListaServico": self.item_lista_servico or "",
             "codigoCnae": self.codigo_cnae or "",
             "codigoTributacao": self.codigo_tributacao or "",

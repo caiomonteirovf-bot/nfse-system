@@ -169,6 +169,8 @@ class NfseService:
             )
         notas_canceladas = canceladas.scalar() or 0
 
+        notas_capturadas = sum(1 for n in notas if getattr(n, 'origem', '') == 'CAPTURADA')
+
         return {
             "totalNotas": total_notas,
             "totalFaturado": round(total_faturado, 2),
@@ -177,6 +179,7 @@ class NfseService:
             "cargaTributariaMedia": round(total_impostos / total_faturado * 100, 1) if total_faturado else 0,
             "notasCanceladas": notas_canceladas,
             "totalLiquido": round(total_liquido, 2),
+            "notasCapturadas": notas_capturadas,
         }
 
     def _evolucao_mensal(self, db: Session, ano: int) -> list:

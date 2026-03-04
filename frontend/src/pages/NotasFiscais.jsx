@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { fetchNfses, createNfse, updateNfse, deleteNfse, cancelarNfse } from '../api'
-import { NFSE_STATUS_OPTIONS, NFSE_STATUS_TONE } from '../lib/constants'
+import { NFSE_STATUS_OPTIONS, NFSE_STATUS_TONE, NFSE_ORIGEM_TONE } from '../lib/constants'
 import { formatCurrency, formatDate } from '../lib/formatters'
 
 const currentYear = new Date().getFullYear()
@@ -220,13 +220,14 @@ export default function NotasFiscais({ tomadores = [], onRefresh }) {
                 <th>ISS</th>
                 <th>Liquido</th>
                 <th>Data</th>
+                <th>Origem</th>
                 <th>Status</th>
                 <th>Acoes</th>
               </tr>
             </thead>
             <tbody>
               {items.length === 0 && !loading ? (
-                <tr><td colSpan={8}><p className="empty-state">Nenhuma NFS-e encontrada</p></td></tr>
+                <tr><td colSpan={9}><p className="empty-state">Nenhuma NFS-e encontrada</p></td></tr>
               ) : items.map(n => (
                 <tr key={n.id}>
                   <td><strong>{n.numero}</strong><small>Serie {n.serie}</small></td>
@@ -235,6 +236,9 @@ export default function NotasFiscais({ tomadores = [], onRefresh }) {
                   <td>{formatCurrency(n.valorIss)}<small>{n.aliquotaIss}%</small></td>
                   <td>{formatCurrency(n.valorLiquido)}</td>
                   <td>{formatDate(n.dataEmissao)}</td>
+                  <td>
+                    <span className={`badge badge--${NFSE_ORIGEM_TONE[n.origem] || 'neutral'}`}>{n.origem || 'MANUAL'}</span>
+                  </td>
                   <td>
                     <span className={`badge badge--${NFSE_STATUS_TONE[n.status] || 'neutral'}`}>{n.status}</span>
                   </td>

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { fetchPrestadorConfig, updatePrestadorConfig } from '../api'
+import { fetchPrestadorConfig, updatePrestadorConfig, uploadCertificado } from '../api'
 import { UF_OPTIONS } from '../lib/constants'
 
 export default function Configuracoes({ onRefresh }) {
@@ -7,6 +7,9 @@ export default function Configuracoes({ onRefresh }) {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
+  const [certSenha, setCertSenha] = useState('')
+  const [certMessage, setCertMessage] = useState('')
+  const [uploadingCert, setUploadingCert] = useState(false)
 
   useEffect(() => {
     fetchPrestadorConfig()
@@ -81,6 +84,95 @@ export default function Configuracoes({ onRefresh }) {
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginTop: 10 }}>
             <label>Codigo Municipio (IBGE)<input value={form.codigoMunicipio || ''} onChange={e => setField('codigoMunicipio', e.target.value)} /></label>
+          </div>
+        </div>
+      </div>
+
+      {/* Certificado Digital A1 */}
+      <div className="panel">
+        <header className="panel__header"><h3>Certificado Digital A1</h3></header>
+        <div className="panel__body module-content">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 12 }}>
+            <span style={{ fontSize: 13 }}>Status:</span>
+            {form.certificadoStatus ? (
+              <span className={`badge badge--${form.certificadoStatus === 'NO_PRAZO' ? 'success' : form.certificadoStatus === 'A_VENCER' ? 'warning' : 'danger'}`}>
+                {form.certificadoStatus === 'NO_PRAZO' ? 'Valido' : form.certificadoStatus === 'A_VENCER' ? 'A Vencer' : 'Vencido'}
+              </span>
+            ) : (
+              <span className="badge badge--neutral">{form.certificadoCarregado ? 'Carregado' : 'Nao configurado'}</span>
+            )}
+            {form.certificadoCnpj && <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>CNPJ: {form.certificadoCnpj}</span>}
+            {form.certificadoValidade && <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>Validade: {new Date(form.certificadoValidade).toLocaleDateString('pt-BR')}</span>}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 10, alignItems: 'end' }}>
+            <label>
+              Arquivo .pfx
+              <input
+                type="file"
+                accept=".pfx,.p12"
+                onChange={e => {
+                  const file = e.target.files?.[0]
+                  if (file) {
+                    const reader = new FileReader()
+                    reader.onload = () => {
+                      const b64 = reader.result.split(',')[1]
+                      window.__pfxBase64 = b64
+                    }
+                    reader.readAsDataURL(file)
+                  }
+                }}
+              />
+            </label>
+            <label>
+              Senha
+              <input type="password" value={certSenha} onChange={e => setCertSenha(e.target.value)} placeholder="Senha do certificado" />
+            </label>
+            <button
+              className="btn btn--solid"
+              disabled={uploadingCert}
+              onClick={async () => {
+                const b64 = window.__pfxBase64
+                if (!b64) return setCertMessage('Selecione um arquivo .pfx')
+                setUploadingCert(true)
+                setCertMessage('')
+                try {
+                  const result = await uploadCertificado(b64, certSenha)
+                  if (result.ok) {
+                    setCertMessage(`Certificado carregado! CNPJ: ${result.data?.cnpj || ''} - Validade: ${result.data?.validade || ''}`)
+                    // Reload config
+                    const updated = await fetchPrestadorConfig()
+                    setForm(updated)
+                  } else {
+                    setCertMessage('Erro: ' + (result.error || 'Falha no upload'))
+                  }
+                } catch (e) {
+                  setCertMessage('Erro: ' + e.message)
+                } finally {
+                  setUploadingCert(false)
+                }
+              }}
+            >
+              {uploadingCert ? 'Enviando...' : 'Enviar Certificado'}
+            </button>
+          </div>
+          {certMessage && (
+            <p style={{ marginTop: 8, fontSize: 13, color: certMessage.startsWith('Erro') ? 'var(--danger)' : 'var(--success)', fontWeight: 600 }}>
+              {certMessage}
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* NFS-e Nacional */}
+      <div className="panel">
+        <header className="panel__header"><h3>NFS-e Nacional (API)</h3></header>
+        <div className="panel__body module-content">
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <label>URL SEFIN<input value={form.nfseNacionalUrl || ''} onChange={e => setField('nfseNacionalUrl', e.target.value)} placeholder="https://sefin.nfse.gov.br/SefinNacional" /></label>
+            <label>URL ADN<input value={form.adnUrl || ''} onChange={e => setField('adnUrl', e.target.value)} placeholder="https://adn.nfse.gov.br" /></label>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginTop: 10 }}>
+            <label>Ultimo NSU<input type="number" value={form.ultimoNsu || 0} onChange={e => setField('ultimoNsu', e.target.value)} /></label>
           </div>
         </div>
       </div>

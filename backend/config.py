@@ -16,3 +16,7 @@ NFSE_INSCRICAO_MUNICIPAL = os.getenv("NFSE_INSCRICAO_MUNICIPAL", "")
 NFSE_RAZAO_SOCIAL = os.getenv("NFSE_RAZAO_SOCIAL", "")
 NFSE_MUNICIPIO_CODIGO = os.getenv("NFSE_MUNICIPIO_CODIGO", "")
 NFSE_AMBIENTE = os.getenv("NFSE_AMBIENTE", "HOMOLOGACAO")
+
+# NFS-e Nacional (API Unificada)
+NFSE_SEFIN_URL = os.getenv("NFSE_SEFIN_URL", "https://sefin.nfse.gov.br/SefinNacional")
+NFSE_ADN_URL = os.getenv("NFSE_ADN_URL", "https://adn.nfse.gov.br")

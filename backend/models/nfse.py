@@ -1,6 +1,6 @@
 from datetime import datetime, date
 from sqlalchemy import (
-    String, Float, Integer, Boolean, Date, DateTime, Text,
+    String, Float, Integer, BigInteger, Boolean, Date, DateTime, Text,
     ForeignKey, Index, UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -81,6 +81,12 @@ class Nfse(Base):
     xml_retorno: Mapped[str] = mapped_column(Text, default="")
     mensagem_retorno: Mapped[str] = mapped_column(Text, default="")
 
+    # --- NFS-e Nacional ---
+    chave_acesso: Mapped[str | None] = mapped_column(String(50), unique=True, nullable=True)
+    origem: Mapped[str] = mapped_column(String(20), default="MANUAL")  # MANUAL / IMPORTADA / CAPTURADA / EMITIDA
+    xml_nfse: Mapped[str] = mapped_column(Text, default="")
+    nsu: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
     observacoes: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -156,6 +162,10 @@ class Nfse(Base):
             "loteId": self.lote_id or "",
             "protocolo": self.protocolo or "",
             "mensagemRetorno": self.mensagem_retorno or "",
+            # NFS-e Nacional
+            "chaveAcesso": self.chave_acesso or "",
+            "origem": self.origem or "MANUAL",
+            "nsu": self.nsu,
             "observacoes": self.observacoes or "",
             "createdAt": self.created_at.isoformat() if self.created_at else None,
             "updatedAt": self.updated_at.isoformat() if self.updated_at else None,

@@ -38,6 +38,20 @@ export const TOMADOR_FORM_FIELDS = [
   { key: 'observacoes', label: 'Observacoes', type: 'textarea' },
 ]
 
+export const NFSE_ORIGEM_OPTIONS = [
+  { value: 'MANUAL', label: 'Manual' },
+  { value: 'IMPORTADA', label: 'Importada' },
+  { value: 'CAPTURADA', label: 'Capturada' },
+  { value: 'EMITIDA', label: 'Emitida' },
+]
+
+export const NFSE_ORIGEM_TONE = {
+  MANUAL: 'neutral',
+  IMPORTADA: 'info',
+  CAPTURADA: 'success',
+  EMITIDA: 'warning',
+}
+
 export const SIDEBAR_ITEMS = [
   { group: 'PRINCIPAL', items: [
     { id: 'dashboard', label: 'Dashboard', icon: 'chart' },
@@ -45,6 +59,7 @@ export const SIDEBAR_ITEMS = [
     { id: 'tomadores', label: 'Tomadores', icon: 'users' },
   ]},
   { group: 'OPERACAO', items: [
+    { id: 'captura', label: 'Captura NFS-e', icon: 'download' },
     { id: 'importar', label: 'Importar', icon: 'upload' },
     { id: 'emissao', label: 'Emissao ABRASF', icon: 'send' },
     { id: 'xml', label: 'Historico XML', icon: 'code' },
