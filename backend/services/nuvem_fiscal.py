@@ -1,5 +1,6 @@
 """Integração com Nuvem Fiscal API — OAuth2, emissão NFS-e, consulta e PDF."""
 
+import asyncio
 import time
 from datetime import date, datetime, timezone, timedelta
 
@@ -403,6 +404,13 @@ async def emitir_nfse(db: Session, nfse_ids: list[int], prestador_data: dict | N
                 continue
 
             try:
+                # Vincular tomador ANTES de montar o payload (para incluir endereço)
+                _ensure_tomador(db, nfse)
+                db.flush()
+                # Forçar carregamento da relação tomador após vinculação
+                if nfse.tomador_id and not nfse.tomador:
+                    db.refresh(nfse, ["tomador"])
+
                 payload = _build_dps_payload(nfse, config, prestador_data=prestador_data)
 
                 nfse.status = "PROCESSANDO"
@@ -455,26 +463,35 @@ async def emitir_nfse(db: Session, nfse_ids: list[int], prestador_data: dict | N
                             prestador_data.get("razao_social", "") if prestador_data
                             else config.razao_social or ""
                         )
-                    _ensure_tomador(db, nfse)
-
                     # Consultar status para pegar número real da prefeitura
+                    # A prefeitura pode levar alguns segundos para processar
                     nuvem_id = data.get("id", "")
-                    if nuvem_id and (not nfse.numero or nfse.numero == str(num_real)):
-                        try:
-                            status_resp = await client.get(
-                                f"{base_url}/nfse/{nuvem_id}",
-                                headers=headers,
-                            )
-                            if status_resp.status_code == 200:
-                                status_data = status_resp.json()
-                                if status_data.get("numero"):
-                                    nfse.numero = str(status_data["numero"])
-                                if status_data.get("chave_acesso"):
-                                    nfse.chave_acesso = status_data["chave_acesso"]
-                                if status_data.get("codigo_verificacao"):
-                                    nfse.codigo_verificacao = status_data["codigo_verificacao"]
-                        except Exception:
-                            pass  # Não falha a emissão se consulta não funcionar
+                    if nuvem_id:
+                        numero_encontrado = False
+                        for tentativa in range(3):  # 3 tentativas: 3s, 5s, 7s
+                            await asyncio.sleep(3 + tentativa * 2)
+                            try:
+                                status_resp = await client.get(
+                                    f"{base_url}/nfse/{nuvem_id}",
+                                    headers=headers,
+                                )
+                                if status_resp.status_code == 200:
+                                    status_data = status_resp.json()
+                                    if status_data.get("numero"):
+                                        nfse.numero = str(status_data["numero"])
+                                        numero_encontrado = True
+                                    if status_data.get("chave_acesso"):
+                                        nfse.chave_acesso = status_data["chave_acesso"]
+                                    if status_data.get("codigo_verificacao"):
+                                        nfse.codigo_verificacao = status_data["codigo_verificacao"]
+                                    if numero_encontrado:
+                                        break
+                            except Exception:
+                                pass
+                        # Se após 3 tentativas ainda não tem número, marca PROCESSANDO
+                        # para que o poll-processando resolva depois
+                        if not numero_encontrado and (not nfse.numero or nfse.numero.startswith("PEND-") or nfse.numero == "AUTO"):
+                            nfse.status = "PROCESSANDO"
 
                     db.commit()
 

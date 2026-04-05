@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  fetchNfses, createNfse, emitirNfseLote, consultarLoteNfse,
+  fetchNfses, createNfse, deleteNfse, emitirNfseLote, consultarLoteNfse,
   emitirNfseNuvem, pdfNfseNuvemUrl, cancelarNfse, request, buscarTomadorPorDocumento,
   updateTomador, createTomador, fetchSugestoesEmissao, pollProcessando,
 } from '../api'
@@ -23,6 +23,11 @@ const EMPTY_NOVA = {
   dataEmissao: new Date().toISOString().slice(0, 10),
   _tomadorId: null,
 }
+
+const UFS = [
+  'AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG',
+  'PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO',
+]
 
 // Aliquotas padrao por regime tributario
 const REGRAS_REGIME = {
@@ -225,13 +230,33 @@ export default function Emissao({ prestador, clienteAtivo }) {
       } else {
         await createTomador(payload)
       }
-      alert('Tomador salvo com sucesso!')
     } catch (err) {
-      alert(`Erro ao salvar tomador: ${err.message}`)
+      // Silencioso — tomador será salvo/vinculado no backend durante emissão
     }
   }
 
+  const buscarCep = async (cep) => {
+    const cepLimpo = (cep || '').replace(/\D/g, '')
+    if (cepLimpo.length !== 8) return
+    try {
+      const resp = await fetch(`https://viacep.com.br/ws/${cepLimpo}/json/`)
+      const data = await resp.json()
+      if (data.erro) return
+      setNova(f => ({
+        ...f,
+        tomadorLogradouro: data.logradouro || f.tomadorLogradouro,
+        tomadorBairro: data.bairro || f.tomadorBairro,
+        tomadorCidade: data.localidade || f.tomadorCidade,
+        tomadorUf: data.uf || f.tomadorUf,
+        tomadorComplemento: data.complemento || f.tomadorComplemento,
+      }))
+    } catch { /* ViaCEP indisponível */ }
+  }
+
   const handleCriarEEmitir = async () => {
+    if (!clienteAtivo?.document) {
+      return alert('Selecione o prestador (cliente) no seletor acima antes de emitir.')
+    }
     if (!nova.tomadorCpfCnpj || !nova.valorServicos || !nova.descricaoServico) {
       return alert('Preencha CNPJ/CPF, valor e descricao do servico.')
     }
@@ -241,7 +266,7 @@ export default function Emissao({ prestador, clienteAtivo }) {
       await salvarTomador()
       // 2. Criar nota como PENDENTE
       const nfse = await createNfse({
-        numero: 'AUTO',
+        numero: `PEND-${Date.now()}`,
         serie: '1',
         tomadorCpfCnpj: nova.tomadorCpfCnpj.replace(/\D/g, ''),
         tomadorRazaoSocial: nova.tomadorRazaoSocial,
@@ -259,8 +284,8 @@ export default function Emissao({ prestador, clienteAtivo }) {
         dataEmissao: nova.dataEmissao,
         status: 'PENDENTE',
       })
-      // 3. Emitir imediatamente via Nuvem Fiscal
-      const result = await emitirNfseNuvem([nfse.id])
+      // 3. Emitir imediatamente via Nuvem Fiscal (com CNPJ do prestador)
+      const result = await emitirNfseNuvem([nfse.id], clienteAtivo.document)
       setResultado({ ...result, modo: 'nuvem' })
       setNova({ ...EMPTY_NOVA })
       setShowNova(false)
@@ -356,7 +381,7 @@ export default function Emissao({ prestador, clienteAtivo }) {
       const ids = [...selected]
       let data
       if (modo === 'nuvem') {
-        data = await emitirNfseNuvem(ids)
+        data = await emitirNfseNuvem(ids, clienteAtivo?.document)
       } else {
         data = await emitirNfseLote(ids)
       }
@@ -417,15 +442,34 @@ export default function Emissao({ prestador, clienteAtivo }) {
       {/* Config Status */}
       <div className="panel">
         <header className="panel__header">
-          <h3>Configuracao {modo === 'nuvem' ? 'Nuvem Fiscal' : 'ABRASF'}</h3>
+          <h3>{modo === 'nuvem' ? 'Prestador / Nuvem Fiscal' : 'Configuracao ABRASF'}</h3>
         </header>
         <div className="panel__body">
           {modo === 'nuvem' ? (
-            nuvemOk ? (
+            !nuvemOk ? (
+              <p style={{ color: 'var(--danger)', fontSize: 13 }}>
+                Configure as credenciais da Nuvem Fiscal em Configuracoes antes de emitir.
+              </p>
+            ) : !clienteAtivo?.document ? (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, fontSize: 13 }}>
+                <div style={{ gridColumn: 'span 2' }}>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 2 }}>Prestador</div>
+                  <span style={{ color: 'var(--warning, #f59e0b)' }}>Selecione um cliente no seletor acima</span>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 2 }}>API</div>
+                  <span className="badge badge--success">Configurado</span>
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, fontSize: 13 }}>
+                <div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 2 }}>Prestador</div>
+                  <strong>{clienteAtivo.name || clienteAtivo.legalName || '--'}</strong>
+                </div>
                 <div>
                   <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 2 }}>CNPJ</div>
-                  <strong>{prestador.cnpj}</strong>
+                  <strong>{clienteAtivo.document}</strong>
                 </div>
                 <div>
                   <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 2 }}>Ambiente</div>
@@ -438,10 +482,6 @@ export default function Emissao({ prestador, clienteAtivo }) {
                   <span className="badge badge--success">Configurado</span>
                 </div>
               </div>
-            ) : (
-              <p style={{ color: 'var(--danger)', fontSize: 13 }}>
-                Configure as credenciais da Nuvem Fiscal em Configuracoes antes de emitir.
-              </p>
             )
           ) : (
             abrasfOk ? (
@@ -477,12 +517,19 @@ export default function Emissao({ prestador, clienteAtivo }) {
       {/* Nova NFS-e - Emissao Rapida */}
       <div className="panel" style={{ borderLeft: '3px solid #22C55E' }}>
         <header className="panel__header">
-          <h3>Nova NFS-e</h3>
+          <h3>Nova NFS-e {clienteAtivo ? `— ${clienteAtivo.name || clienteAtivo.legalName || ''}` : ''}</h3>
           <button className="btn btn--solid" onClick={() => setShowNova(!showNova)}>
             {showNova ? 'Fechar' : '+ Emitir Nota'}
           </button>
         </header>
-        {showNova && (
+        {showNova && !clienteAtivo?.document && (
+          <div className="panel__body">
+            <p style={{ color: 'var(--warning, #f59e0b)', fontSize: 14, margin: 0 }}>
+              Selecione o prestador (empresa que emite a nota) no seletor de clientes acima para continuar.
+            </p>
+          </div>
+        )}
+        {showNova && clienteAtivo?.document && (
           <div className="panel__body">
             {/* Tomador */}
             <h4 style={{ margin: '0 0 8px', fontSize: 12, textTransform: 'uppercase', color: 'var(--text-muted)', letterSpacing: '0.5px' }}>Tomador</h4>
@@ -498,13 +545,27 @@ export default function Emissao({ prestador, clienteAtivo }) {
               <label>Razao Social<input value={nova.tomadorRazaoSocial} onChange={e => setNovaField('tomadorRazaoSocial', e.target.value)} /></label>
               <label>Email<input value={nova.tomadorEmail} onChange={e => setNovaField('tomadorEmail', e.target.value)} /></label>
               <label>Telefone<input value={nova.tomadorTelefone} onChange={e => setNovaField('tomadorTelefone', e.target.value)} /></label>
+              <label>
+                CEP
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <input value={nova.tomadorCep} onChange={e => {
+                    const v = e.target.value
+                    setNovaField('tomadorCep', v)
+                    if (v.replace(/\D/g, '').length === 8) buscarCep(v)
+                  }} placeholder="00000-000" style={{ flex: 1 }} />
+                </div>
+              </label>
               <label style={{ gridColumn: 'span 2' }}>Logradouro<input value={nova.tomadorLogradouro} onChange={e => setNovaField('tomadorLogradouro', e.target.value)} placeholder="Rua, Av..." /></label>
               <label>Numero<input value={nova.tomadorNumero} onChange={e => setNovaField('tomadorNumero', e.target.value)} /></label>
               <label>Complemento<input value={nova.tomadorComplemento} onChange={e => setNovaField('tomadorComplemento', e.target.value)} /></label>
               <label>Bairro<input value={nova.tomadorBairro} onChange={e => setNovaField('tomadorBairro', e.target.value)} /></label>
               <label>Cidade<input value={nova.tomadorCidade} onChange={e => setNovaField('tomadorCidade', e.target.value)} /></label>
-              <label>UF<input value={nova.tomadorUf} onChange={e => setNovaField('tomadorUf', e.target.value)} maxLength={2} style={{ width: 60 }} /></label>
-              <label>CEP<input value={nova.tomadorCep} onChange={e => setNovaField('tomadorCep', e.target.value)} placeholder="00000-000" /></label>
+              <label>UF
+                <select value={nova.tomadorUf} onChange={e => setNovaField('tomadorUf', e.target.value)} style={{ width: 80 }}>
+                  <option value="">--</option>
+                  {UFS.map(uf => <option key={uf} value={uf}>{uf}</option>)}
+                </select>
+              </label>
             </div>
 
             {/* Servico */}
@@ -530,7 +591,7 @@ export default function Emissao({ prestador, clienteAtivo }) {
                     </button>
                   )}
                 </span>
-                <input value={nova.descricaoServico} onChange={e => setNovaField('descricaoServico', e.target.value)} placeholder={sugestoes.length > 0 ? sugestoes[0].descricao : 'Descreva o servico prestado'} />
+                <textarea value={nova.descricaoServico} onChange={e => setNovaField('descricaoServico', e.target.value)} placeholder={sugestoes.length > 0 ? sugestoes[0].descricao : 'Descreva o servico prestado'} rows={3} style={{ resize: 'vertical', minHeight: 60, fontFamily: 'inherit', fontSize: 13 }} />
                 {showSugestoes && sugestoes.length > 0 && (
                   <div style={{
                     position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50,
@@ -569,6 +630,13 @@ export default function Emissao({ prestador, clienteAtivo }) {
 
             {/* Tributacao Municipal */}
             <h4 style={{ margin: '16px 0 8px', fontSize: 12, textTransform: 'uppercase', color: 'var(--text-muted)', letterSpacing: '0.5px' }}>Tributacao Municipal (ISS)</h4>
+            {clienteAtivo && (
+              <div style={{ marginBottom: 8, fontSize: 12, color: 'var(--text-muted)', display: 'flex', gap: 16 }}>
+                {clienteAtivo.cnaePrincipal && <span>CNAE: <strong>{clienteAtivo.cnaePrincipal}</strong></span>}
+                {clienteAtivo.codigoTributacao && <span>cTribNac: <strong>{clienteAtivo.codigoTributacao}</strong></span>}
+                {clienteAtivo.itemListaServico && <span>cTribMun: <strong>{clienteAtivo.itemListaServico}</strong></span>}
+              </div>
+            )}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
               <label>Aliquota ISS (%)<input type="number" step="0.01" value={nova.aliquotaIss} onChange={e => setNovaField('aliquotaIss', e.target.value)} placeholder="Ex: 5.00" /></label>
               <label style={{ flexDirection: 'row', alignItems: 'center', gap: 8, display: 'flex', paddingTop: 18 }}>
@@ -668,9 +736,6 @@ export default function Emissao({ prestador, clienteAtivo }) {
               <button className="btn btn--solid" onClick={handleCriarEEmitir} disabled={novaLoading || !configOk}>
                 {novaLoading ? 'Emitindo...' : 'Criar e Emitir via Nuvem Fiscal'}
               </button>
-              <button className="btn btn--ghost" onClick={salvarTomador} type="button" disabled={!nova.tomadorCpfCnpj || !nova.tomadorRazaoSocial}>
-                Salvar Tomador
-              </button>
               {!configOk && <small style={{ color: 'var(--danger)', alignSelf: 'center' }}>Configure a Nuvem Fiscal antes de emitir</small>}
             </div>
           </div>
@@ -713,7 +778,7 @@ export default function Emissao({ prestador, clienteAtivo }) {
               ) : notas.map(n => (
                 <tr key={n.id} style={{ cursor: 'pointer' }} onClick={() => toggleSelect(n.id)}>
                   <td><input type="checkbox" checked={selected.has(n.id)} onChange={() => toggleSelect(n.id)} /></td>
-                  <td><strong>{n.numero}</strong><br/><small>Serie {n.serie}</small></td>
+                  <td><strong>{n.numero?.startsWith('PEND-') || n.numero === 'AUTO' ? 'Aguardando...' : n.numero}</strong><br/><small>Serie {n.serie}</small></td>
                   <td>{n.tomadorNome || n.tomadorRazaoSocial || '--'}<br/><small>{n.tomadorCpfCnpj}</small></td>
                   <td>{formatCurrency(n.valorServicos)}</td>
                   <td>{formatCurrency(n.valorIss)}<br/><small>{n.aliquotaIss ? `${n.aliquotaIss}%` : ''}</small></td>
@@ -750,7 +815,7 @@ export default function Emissao({ prestador, clienteAtivo }) {
               <tbody>
                 {recentes.map(n => (
                   <tr key={n.id}>
-                    <td><strong>{n.numero}</strong><br/><small>Serie {n.serie}</small></td>
+                    <td><strong>{n.numero?.startsWith('PEND-') || n.numero === 'AUTO' ? 'Aguardando...' : n.numero}</strong><br/><small>Serie {n.serie}</small></td>
                     <td>{n.tomadorNome || n.tomadorRazaoSocial || '--'}<br/><small>{n.tomadorCpfCnpj}</small></td>
                     <td>{formatCurrency(n.valorServicos)}</td>
                     <td>{formatDate(n.dataEmissao)}</td>
@@ -761,8 +826,17 @@ export default function Emissao({ prestador, clienteAtivo }) {
                     </td>
                     <td>
                       <div style={{ display: 'flex', gap: 4 }}>
-                        {n.protocolo && n.protocolo.startsWith('nfs') && (
+                        {n.protocolo && !n.protocolo.startsWith('PEND') && (
                           <a href={pdfNfseNuvemUrl(n.protocolo)} target="_blank" rel="noopener noreferrer" className="btn btn--tiny">PDF</a>
+                        )}
+                        {(n.status === 'ERRO' || n.status === 'PENDENTE' || n.status === 'PROCESSANDO') && (
+                          <button className="btn btn--tiny btn--danger" onClick={async (e) => {
+                            e.stopPropagation()
+                            if (!confirm(`Excluir NFS-e ${n.numero?.startsWith('PEND-') ? '(pendente)' : n.numero}?`)) return
+                            await deleteNfse(n.id)
+                            loadRecentes()
+                            load()
+                          }}>Excluir</button>
                         )}
                       </div>
                     </td>

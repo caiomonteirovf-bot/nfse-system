@@ -129,8 +129,10 @@ export async function cancelarNfse(id, motivo) {
 }
 
 // --- Emissao Nuvem Fiscal ---
-export async function emitirNfseNuvem(ids) {
-  const response = await request('/emissao/nuvem-fiscal/emitir', { method: 'POST', body: JSON.stringify({ ids }) })
+export async function emitirNfseNuvem(ids, prestadorCnpj) {
+  const body = { ids }
+  if (prestadorCnpj) body.prestador_cnpj = prestadorCnpj.replace(/\D/g, '')
+  const response = await request('/emissao/nuvem-fiscal/emitir', { method: 'POST', body: JSON.stringify(body) })
   return response
 }
 
