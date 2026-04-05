@@ -122,6 +122,26 @@ export default function Configuracoes({ onRefresh, clienteAtivo }) {
     }
   }
 
+  // ---- Buscar CEP via ViaCEP ----
+  const buscarCep = async (cep, setTargetForm) => {
+    const clean = (cep || '').replace(/\D/g, '')
+    if (clean.length !== 8) return
+    try {
+      const resp = await fetch(`https://viacep.com.br/ws/${clean}/json/`)
+      const data = await resp.json()
+      if (data.erro) return
+      setTargetForm(f => ({
+        ...f,
+        logradouro: data.logradouro || f.logradouro,
+        bairro: data.bairro || f.bairro,
+        cidade: data.localidade || f.cidade,
+        uf: data.uf || f.uf,
+        complemento: data.complemento || f.complemento,
+        codigoMunicipio: data.ibge || f.codigoMunicipio,
+      }))
+    } catch { /* ViaCEP indisponivel */ }
+  }
+
   // ---- Consultar CNPJ (Gesthub primeiro, depois Receita Federal) ----
   const handleConsultarCnpj = async (targetForm, setTargetForm) => {
     const cnpj = targetForm?.cnpj
@@ -505,7 +525,11 @@ export default function Configuracoes({ onRefresh, clienteAtivo }) {
                   {UF_OPTIONS.map(uf => <option key={uf} value={uf}>{uf}</option>)}
                 </select>
               </label>
-              <label>CEP<input value={newForm.cep} onChange={e => setNewField('cep', e.target.value)} /></label>
+              <label>CEP<input value={newForm.cep} onChange={e => {
+                const v = e.target.value
+                setNewField('cep', v)
+                if (v.replace(/\D/g, '').length === 8) buscarCep(v, setNewForm)
+              }} /></label>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginTop: 8 }}>
               <label>Codigo Municipio (IBGE)<input value={newForm.codigoMunicipio} onChange={e => setNewField('codigoMunicipio', e.target.value)} /></label>
@@ -623,7 +647,11 @@ export default function Configuracoes({ onRefresh, clienteAtivo }) {
                     {UF_OPTIONS.map(uf => <option key={uf} value={uf}>{uf}</option>)}
                   </select>
                 </label>
-                <label>CEP<input value={form.cep || ''} onChange={e => setField('cep', e.target.value)} /></label>
+                <label>CEP<input value={form.cep || ''} onChange={e => {
+                  const v = e.target.value
+                  setField('cep', v)
+                  if (v.replace(/\D/g, '').length === 8) buscarCep(v, setForm)
+                }} /></label>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginTop: 8 }}>
                 <label>Codigo Municipio (IBGE)<input value={form.codigoMunicipio || ''} onChange={e => setField('codigoMunicipio', e.target.value)} /></label>
