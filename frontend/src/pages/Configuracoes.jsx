@@ -3,7 +3,7 @@ import {
   fetchPrestadorConfig, updatePrestadorConfig,
   fetchEmpresas, createEmpresa, updateEmpresa, deleteEmpresa, fetchEmpresaByCnpj,
   cadastrarEmpresaNuvemPorId, configurarNfsePorId, uploadCertificadoPorId,
-  consultarCnpj,
+  consultarCnpj, fetchClienteByCnpj,
 } from '../api'
 import { UF_OPTIONS } from '../lib/constants'
 
@@ -122,7 +122,7 @@ export default function Configuracoes({ onRefresh, clienteAtivo }) {
     }
   }
 
-  // ---- Consultar CNPJ ----
+  // ---- Consultar CNPJ (Gesthub primeiro, depois Receita Federal) ----
   const handleConsultarCnpj = async (targetForm, setTargetForm) => {
     const cnpj = targetForm?.cnpj
     if (!cnpj || cnpj.replace(/\D/g, '').length !== 14) {
@@ -133,26 +133,76 @@ export default function Configuracoes({ onRefresh, clienteAtivo }) {
     setCnpjMsg('')
     setSociosData(null)
     try {
-      const dados = await consultarCnpj(cnpj)
-      setTargetForm(f => ({
-        ...f,
-        cnpj: dados.cnpj || f.cnpj,
-        razaoSocial: dados.razaoSocial || f.razaoSocial,
-        nomeFantasia: dados.nomeFantasia || f.nomeFantasia,
-        logradouro: dados.logradouro || f.logradouro,
-        numeroEndereco: dados.numero || f.numeroEndereco,
-        complemento: dados.complemento || f.complemento,
-        bairro: dados.bairro || f.bairro,
-        cidade: dados.cidade || f.cidade,
-        uf: dados.uf || f.uf,
-        cep: dados.cep || f.cep,
-        codigoMunicipio: dados.codigoMunicipioIbge || dados.codigoMunicipio || f.codigoMunicipio,
-        email: dados.email || f.email,
-        telefone: dados.telefone || f.telefone,
-        codigoCnae: dados.cnaePrincipal || f.codigoCnae,
-      }))
-      if (dados.socios?.length) setSociosData(dados.socios)
-      setCnpjMsg(`Dados carregados da Receita Federal. ${dados.situacao || ''}`)
+      // 1. Buscar no Gesthub primeiro (dados completos do cliente)
+      let gesthubData = null
+      try {
+        gesthubData = await fetchClienteByCnpj(cnpj)
+      } catch { /* Gesthub indisponivel */ }
+
+      if (gesthubData) {
+        setTargetForm(f => ({
+          ...f,
+          cnpj: (gesthubData.document || '').replace(/\D/g, '') || f.cnpj,
+          razaoSocial: gesthubData.legalName || f.razaoSocial,
+          nomeFantasia: gesthubData.tradeName || f.nomeFantasia,
+          logradouro: gesthubData.logradouro || f.logradouro,
+          numeroEndereco: gesthubData.numeroEndereco || f.numeroEndereco,
+          complemento: gesthubData.complemento || f.complemento,
+          bairro: gesthubData.bairro || f.bairro,
+          cidade: gesthubData.city || f.cidade,
+          uf: gesthubData.state || f.uf,
+          cep: gesthubData.cep || f.cep,
+          codigoMunicipio: gesthubData.codigoMunicipioIbge || f.codigoMunicipio,
+          email: gesthubData.email || f.email,
+          telefone: gesthubData.phone || f.telefone,
+          codigoCnae: gesthubData.cnaePrincipal || f.codigoCnae,
+          inscricaoMunicipal: gesthubData.inscricaoMunicipal || f.inscricaoMunicipal,
+          gesthubClientId: gesthubData.id || f.gesthubClientId,
+        }))
+        setCnpjMsg(`Dados carregados do Gesthub: ${gesthubData.legalName || ''}`)
+
+        // 2. Complementar com Receita Federal (socios, dados faltantes)
+        try {
+          const rf = await consultarCnpj(cnpj)
+          setTargetForm(f => ({
+            ...f,
+            // Só preenche campos que ficaram vazios
+            logradouro: f.logradouro || rf.logradouro || '',
+            numeroEndereco: f.numeroEndereco || rf.numero || '',
+            complemento: f.complemento || rf.complemento || '',
+            bairro: f.bairro || rf.bairro || '',
+            cidade: f.cidade || rf.cidade || '',
+            uf: f.uf || rf.uf || '',
+            cep: f.cep || rf.cep || '',
+            codigoMunicipio: f.codigoMunicipio || rf.codigoMunicipioIbge || '',
+            codigoCnae: f.codigoCnae || rf.cnaePrincipal || '',
+          }))
+          if (rf.socios?.length) setSociosData(rf.socios)
+          setCnpjMsg(`Dados do Gesthub + Receita Federal. ${rf.situacao || ''}`)
+        } catch { /* RF indisponivel, já temos os dados do Gesthub */ }
+      } else {
+        // Não encontrou no Gesthub — busca só na Receita Federal
+        const dados = await consultarCnpj(cnpj)
+        setTargetForm(f => ({
+          ...f,
+          cnpj: dados.cnpj || f.cnpj,
+          razaoSocial: dados.razaoSocial || f.razaoSocial,
+          nomeFantasia: dados.nomeFantasia || f.nomeFantasia,
+          logradouro: dados.logradouro || f.logradouro,
+          numeroEndereco: dados.numero || f.numeroEndereco,
+          complemento: dados.complemento || f.complemento,
+          bairro: dados.bairro || f.bairro,
+          cidade: dados.cidade || f.cidade,
+          uf: dados.uf || f.uf,
+          cep: dados.cep || f.cep,
+          codigoMunicipio: dados.codigoMunicipioIbge || dados.codigoMunicipio || f.codigoMunicipio,
+          email: dados.email || f.email,
+          telefone: dados.telefone || f.telefone,
+          codigoCnae: dados.cnaePrincipal || f.codigoCnae,
+        }))
+        if (dados.socios?.length) setSociosData(dados.socios)
+        setCnpjMsg(`Dados carregados da Receita Federal (nao encontrado no Gesthub). ${dados.situacao || ''}`)
+      }
     } catch (e) {
       setCnpjMsg('Erro: ' + e.message)
     } finally {
@@ -424,7 +474,14 @@ export default function Configuracoes({ onRefresh, clienteAtivo }) {
               <p style={{ marginBottom: 10, fontSize: 13, color: cnpjMsg.startsWith('Erro') ? 'var(--danger)' : 'var(--success)', fontWeight: 600 }}>{cnpjMsg}</p>
             )}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
-              <label>CNPJ *<input value={newForm.cnpj} onChange={e => setNewField('cnpj', e.target.value)} placeholder="00.000.000/0000-00" /></label>
+              <label>CNPJ *<input value={newForm.cnpj} onChange={e => {
+                const v = e.target.value
+                setNewField('cnpj', v)
+                if (v.replace(/\D/g, '').length === 14) {
+                  // Auto-buscar ao digitar 14 digitos
+                  setTimeout(() => handleConsultarCnpj({ ...newForm, cnpj: v }, setNewForm), 100)
+                }
+              }} placeholder="00.000.000/0000-00" /></label>
               <label>Razao Social<input value={newForm.razaoSocial} onChange={e => setNewField('razaoSocial', e.target.value)} /></label>
               <label>Nome Fantasia<input value={newForm.nomeFantasia} onChange={e => setNewField('nomeFantasia', e.target.value)} /></label>
               <label>Inscricao Municipal<input value={newForm.inscricaoMunicipal} onChange={e => setNewField('inscricaoMunicipal', e.target.value)} /></label>
