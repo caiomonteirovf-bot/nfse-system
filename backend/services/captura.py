@@ -17,7 +17,8 @@ from backend.models.xml_log import XmlLog
 from backend.services.certificado import get_ssl_context
 
 
-NS = "http://www.abrasf.org.br/nfse.xsd"
+NS_ABRASF = "http://www.abrasf.org.br/nfse.xsd"
+NS_NACIONAL = "http://www.sped.fazenda.gov.br/nfse"
 
 
 async def executar_captura(db: Session) -> dict:
@@ -58,7 +59,7 @@ async def executar_captura(db: Session) -> dict:
                     break
 
                 data = resp.json()
-                documentos = data.get("documentos", data.get("lote", []))
+                documentos = data.get("LoteDFe", data.get("documentos", data.get("lote", [])))
 
                 if not documentos:
                     # Atualizar max NSU se fornecido
@@ -69,11 +70,20 @@ async def executar_captura(db: Session) -> dict:
 
                 for doc in documentos:
                     nsu_doc = int(doc.get("NSU", doc.get("nsu", 0)))
-                    xml_b64 = doc.get("xml", doc.get("xmlGZipB64", ""))
+                    tipo_doc = doc.get("TipoDocumento", "")
+                    xml_b64 = doc.get("ArquivoXml", doc.get("xml", doc.get("xmlGZipB64", "")))
+
+                    # Atualizar NSU mesmo se pular documento
+                    if nsu_doc > ultimo_nsu:
+                        ultimo_nsu = nsu_doc
 
                     # Decodificar: Base64 → GZip → XML
                     xml_str = _decode_xml(xml_b64)
                     if not xml_str:
+                        continue
+
+                    # Pular eventos (cancelamento, substituicao) — processar apenas NFS-e
+                    if tipo_doc and tipo_doc.upper() not in ("NFSE", "NFS-E", ""):
                         continue
 
                     # Parse e salvar
@@ -81,26 +91,40 @@ async def executar_captura(db: Session) -> dict:
                     if not nfse_data:
                         continue
 
+                    # Pular documentos sem numero (provavelmente eventos)
+                    if not nfse_data.get("numero"):
+                        continue
+
                     chave = nfse_data.get("chave_acesso", "")
-                    existing = db.query(Nfse).filter(Nfse.chave_acesso == chave).first() if chave else None
 
-                    if existing:
-                        # Atualizar status se mudou
-                        if nfse_data.get("status") and existing.status != nfse_data["status"]:
-                            existing.status = nfse_data["status"]
-                            existing.xml_nfse = xml_str
-                    else:
-                        # Criar nova NFS-e
-                        nfse = _criar_nfse_from_parsed(db, nfse_data, xml_str, nsu_doc)
-                        db.add(nfse)
-                        total_novas += 1
+                    try:
+                        existing = db.query(Nfse).filter(Nfse.chave_acesso == chave).first() if chave else None
 
-                    total_capturadas += 1
-                    if nsu_doc > ultimo_nsu:
-                        ultimo_nsu = nsu_doc
+                        if existing:
+                            # Atualizar status se mudou
+                            if nfse_data.get("status") and existing.status != nfse_data["status"]:
+                                existing.status = nfse_data["status"]
+                                existing.xml_nfse = xml_str
+                                db.flush()
+                        else:
+                            # Verificar duplicidade por numero+serie
+                            num = nfse_data.get("numero", "")
+                            serie = nfse_data.get("serie", "1")
+                            dup = db.query(Nfse).filter(Nfse.numero == num, Nfse.serie == serie).first() if num else None
+                            if not dup:
+                                nfse = _criar_nfse_from_parsed(db, nfse_data, xml_str, nsu_doc)
+                                db.add(nfse)
+                                db.flush()
+                                total_novas += 1
 
-                # Verificar se ha mais
-                if data.get("indCont", "0") != "1":
+                        total_capturadas += 1
+                    except Exception:
+                        db.rollback()
+                        continue
+
+                # Verificar se ha mais documentos
+                status_proc = data.get("StatusProcessamento", "")
+                if status_proc != "DOCUMENTOS_LOCALIZADOS" and data.get("indCont", "0") != "1":
                     break
 
         # Atualizar config com ultimo NSU
@@ -186,76 +210,118 @@ def _decode_xml(xml_b64: str) -> str:
 
 
 def _parse_nfse_xml(xml_str: str) -> dict | None:
-    """Extrai campos de um XML de NFS-e (formato nacional ou ABRASF)."""
+    """Extrai campos de um XML de NFS-e (formato nacional SPED ou ABRASF)."""
     try:
         root = ET.fromstring(xml_str)
     except ET.ParseError:
         return None
 
-    # Tentar encontrar elementos NFS-e em diferentes namespaces
-    ns_map = {"nfse": NS, "": ""}
     data = {}
 
-    # Busca generica de campos
-    def find_text(path, default=""):
-        for ns_prefix in [f"{{{NS}}}", ""]:
-            parts = path.split("/")
-            full_path = "/".join(f"{ns_prefix}{p}" for p in parts)
-            el = root.find(f".//{full_path}")
-            if el is not None and el.text:
-                return el.text.strip()
-        # Tentar sem namespace
-        el = root.find(f".//{path}")
-        if el is not None and el.text:
-            return el.text.strip()
-        return default
+    def _find(el, tag):
+        """Busca tag ignorando namespace."""
+        for child in el.iter():
+            local = child.tag.split("}")[-1] if "}" in child.tag else child.tag
+            if local == tag:
+                return child.text or ""
+        return ""
 
-    data["chave_acesso"] = find_text("ChaveAcesso") or find_text("chNFSe") or ""
-    data["numero"] = find_text("Numero") or find_text("nNFSe") or ""
-    data["serie"] = find_text("Serie") or "1"
-    data["codigo_verificacao"] = find_text("CodigoVerificacao") or ""
-    data["data_emissao"] = find_text("DataEmissao") or find_text("dhEmi") or ""
-    data["competencia"] = find_text("Competencia") or find_text("competencia") or ""
-    data["status"] = _map_status(find_text("SituacaoNfse") or find_text("Status") or "")
-    data["descricao_servico"] = find_text("Discriminacao") or find_text("xDescServ") or ""
-    data["item_lista_servico"] = find_text("ItemListaServico") or find_text("cServ") or ""
-    data["codigo_cnae"] = find_text("CodigoCnae") or find_text("CNAE") or ""
+    def _find_el(el, tag):
+        """Busca elemento ignorando namespace."""
+        for child in el.iter():
+            local = child.tag.split("}")[-1] if "}" in child.tag else child.tag
+            if local == tag:
+                return child
+        return None
+
+    # Chave de acesso (do atributo Id do infNFSe)
+    inf = _find_el(root, "infNFSe")
+    if inf is not None:
+        chave_raw = inf.get("Id", "")
+        data["chave_acesso"] = chave_raw.replace("NFS", "") if chave_raw.startswith("NFS") else chave_raw
+    else:
+        data["chave_acesso"] = _find(root, "ChaveAcesso") or _find(root, "chNFSe") or ""
+
+    data["numero"] = _find(root, "nNFSe") or _find(root, "Numero") or _find(root, "nDPS") or ""
+    data["serie"] = _find(root, "serie") or "1"
+    data["codigo_verificacao"] = _find(root, "cVerif") or _find(root, "CodigoVerificacao") or ""
+
+    # Datas
+    data["data_emissao"] = _find(root, "dhEmi") or _find(root, "dhProc") or _find(root, "DataEmissao") or ""
+    data["competencia"] = _find(root, "dCompet") or _find(root, "Competencia") or ""
+
+    data["status"] = _map_status(_find(root, "SituacaoNfse") or _find(root, "Status") or "")
+    data["descricao_servico"] = _find(root, "xDescServ") or _find(root, "Discriminacao") or ""
+    data["item_lista_servico"] = _find(root, "cServ") or _find(root, "ItemListaServico") or ""
+    data["codigo_cnae"] = _find(root, "CNAE") or _find(root, "CodigoCnae") or ""
+    data["codigo_tributacao_municipio"] = _find(root, "cTribNac") or _find(root, "cTribMun") or ""
 
     # Valores
-    data["valor_servicos"] = _safe_float(find_text("ValorServicos") or find_text("vServ"))
-    data["valor_deducoes"] = _safe_float(find_text("ValorDeducoes"))
-    data["base_calculo"] = _safe_float(find_text("BaseCalculo") or find_text("vBC"))
-    data["aliquota_iss"] = _safe_float(find_text("Aliquota") or find_text("pISS"))
-    data["valor_iss"] = _safe_float(find_text("ValorIss") or find_text("vISS"))
-    data["valor_iss_retido"] = _safe_float(find_text("ValorIssRetido"))
-    data["valor_pis"] = _safe_float(find_text("ValorPis"))
-    data["valor_cofins"] = _safe_float(find_text("ValorCofins"))
-    data["valor_inss"] = _safe_float(find_text("ValorInss"))
-    data["valor_ir"] = _safe_float(find_text("ValorIr"))
-    data["valor_csll"] = _safe_float(find_text("ValorCsll"))
+    data["valor_servicos"] = _safe_float(_find(root, "vServ") or _find(root, "ValorServicos"))
+    data["valor_deducoes"] = _safe_float(_find(root, "ValorDeducoes"))
+    data["base_calculo"] = _safe_float(_find(root, "vBC") or _find(root, "BaseCalculo"))
+    data["aliquota_iss"] = _safe_float(_find(root, "pAliq") or _find(root, "Aliquota"))
+    data["valor_iss"] = _safe_float(_find(root, "vISSQN") or _find(root, "ValorIss"))
+    data["valor_iss_retido"] = _safe_float(_find(root, "ValorIssRetido"))
+    data["valor_pis"] = _safe_float(_find(root, "ValorPis"))
+    data["valor_cofins"] = _safe_float(_find(root, "ValorCofins"))
+    data["valor_inss"] = _safe_float(_find(root, "ValorInss"))
+    data["valor_ir"] = _safe_float(_find(root, "ValorIr") or _find(root, "vRetIRRF"))
+    data["valor_csll"] = _safe_float(_find(root, "ValorCsll") or _find(root, "vRetCSLL"))
+    data["valor_liquido"] = _safe_float(_find(root, "vLiq"))
 
     # Tomador
-    data["tomador_cpf_cnpj"] = find_text("Tomador/IdentificacaoTomador/CpfCnpj/Cnpj") or \
-                                find_text("Tomador/IdentificacaoTomador/CpfCnpj/Cpf") or \
-                                find_text("toma/CNPJ") or find_text("toma/CPF") or ""
-    data["tomador_razao_social"] = find_text("Tomador/RazaoSocial") or find_text("toma/xNome") or ""
-    data["tomador_email"] = find_text("Tomador/Contato/Email") or ""
+    toma = _find_el(root, "toma")
+    if toma is not None:
+        data["tomador_cpf_cnpj"] = _find(toma, "CNPJ") or _find(toma, "CPF") or ""
+        data["tomador_razao_social"] = _find(toma, "xNome") or ""
+        data["tomador_email"] = _find(toma, "xEmail") or ""
+    else:
+        data["tomador_cpf_cnpj"] = _find(root, "Tomador/IdentificacaoTomador/CpfCnpj/Cnpj") or \
+                                    _find(root, "Tomador/IdentificacaoTomador/CpfCnpj/Cpf") or ""
+        data["tomador_razao_social"] = _find(root, "Tomador/RazaoSocial") or ""
+        data["tomador_email"] = _find(root, "Tomador/Contato/Email") or ""
 
-    # Prestador
-    data["prestador_cnpj"] = find_text("Prestador/CpfCnpj/Cnpj") or find_text("prest/CNPJ") or ""
-    data["prestador_razao_social"] = find_text("Prestador/RazaoSocial") or find_text("prest/xNome") or ""
+    # Prestador / Emitente
+    emit = _find_el(root, "emit") or _find_el(root, "prest")
+    if emit is not None:
+        data["prestador_cnpj"] = _find(emit, "CNPJ") or ""
+        data["prestador_razao_social"] = _find(emit, "xNome") or ""
+    else:
+        data["prestador_cnpj"] = _find(root, "Prestador/CpfCnpj/Cnpj") or ""
+        data["prestador_razao_social"] = _find(root, "Prestador/RazaoSocial") or ""
 
     return data
 
 
 def _criar_nfse_from_parsed(db: Session, data: dict, xml_str: str, nsu: int) -> Nfse:
     """Cria um objeto Nfse a partir dos dados parseados."""
-    # Tentar vincular tomador pelo CNPJ/CPF
+    # Tentar vincular tomador pelo CNPJ/CPF — auto-cadastrar se não existir
     tomador_id = None
-    if data.get("tomador_cpf_cnpj"):
-        tomador = db.query(Tomador).filter(Tomador.cpf_cnpj == data["tomador_cpf_cnpj"]).first()
-        if tomador:
-            tomador_id = tomador.id
+    tom_doc = (data.get("tomador_cpf_cnpj") or "").strip()
+    if tom_doc:
+        tomador = db.query(Tomador).filter(Tomador.cpf_cnpj == tom_doc).first()
+        if not tomador:
+            tomador = Tomador(
+                cpf_cnpj=tom_doc,
+                razao_social=data.get("tomador_razao_social", "").strip() or tom_doc,
+                email=data.get("tomador_email", "").strip(),
+            )
+            db.add(tomador)
+            db.flush()
+        tomador_id = tomador.id
+
+    # Auto-cadastrar prestador como tomador (para notas recebidas)
+    prest_doc = (data.get("prestador_cnpj") or "").strip()
+    if prest_doc:
+        prest_tomador = db.query(Tomador).filter(Tomador.cpf_cnpj == prest_doc).first()
+        if not prest_tomador:
+            prest_tomador = Tomador(
+                cpf_cnpj=prest_doc,
+                razao_social=data.get("prestador_razao_social", "").strip() or prest_doc,
+            )
+            db.add(prest_tomador)
+            db.flush()
 
     # Parse datas
     data_emissao = None

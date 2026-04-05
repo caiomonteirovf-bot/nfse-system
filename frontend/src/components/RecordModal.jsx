@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { toNumber, toText, normalizeText } from '../lib/formatters'
 
 function getInitialValues(fields, currentRecord) {
@@ -55,6 +55,13 @@ export default function RecordModal({
 }) {
   const [values, setValues] = useState(() => getInitialValues(fields, record))
   const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (isOpen) {
+      setValues(getInitialValues(fields, record))
+      setError('')
+    }
+  }, [isOpen, record])
 
   const requiredFields = useMemo(() => fields.filter((field) => field.required), [fields])
 

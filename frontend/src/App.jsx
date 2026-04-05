@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { SIDEBAR_ITEMS } from './lib/constants'
-import { fetchBootstrap } from './api'
+import { fetchBootstrap, fetchClientes } from './api'
 import Dashboard from './pages/Dashboard'
 import NotasFiscais from './pages/NotasFiscais'
 import Tomadores from './pages/Tomadores'
@@ -17,7 +17,7 @@ const PAGE_LABELS = {
   tomadores: 'Tomadores',
   captura: 'Captura NFS-e',
   importar: 'Importar',
-  emissao: 'Emissao ABRASF',
+  emissao: 'Emissao NFS-e',
   xml: 'Historico XML',
   config: 'Configuracoes',
 }
@@ -37,6 +37,8 @@ export default function App() {
   const [activePage, setActivePage] = useState('dashboard')
   const [tomadores, setTomadores] = useState([])
   const [prestador, setPrestador] = useState(null)
+  const [clientes, setClientes] = useState([])
+  const [clienteAtivo, setClienteAtivo] = useState(null) // { id, document, legalName, ... }
 
   const loadBootstrap = useCallback(async () => {
     try {
@@ -48,17 +50,39 @@ export default function App() {
     }
   }, [])
 
-  useEffect(() => { loadBootstrap() }, [loadBootstrap])
+  const loadClientes = useCallback(async () => {
+    try {
+      const data = await fetchClientes()
+      setClientes(data || [])
+    } catch (err) {
+      console.error('Erro clientes Gesthub:', err)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadBootstrap()
+    loadClientes()
+  }, [loadBootstrap, loadClientes])
+
+  const handleClienteChange = (e) => {
+    const id = parseInt(e.target.value)
+    if (!id) {
+      setClienteAtivo(null)
+      return
+    }
+    const c = clientes.find(c => c.id === id)
+    setClienteAtivo(c || null)
+  }
 
   const renderPage = () => {
     switch (activePage) {
-      case 'dashboard': return <Dashboard />
-      case 'notas': return <NotasFiscais tomadores={tomadores} onRefresh={loadBootstrap} />
+      case 'dashboard': return <Dashboard clienteId={clienteAtivo?.id} clienteDoc={clienteAtivo?.document} />
+      case 'notas': return <NotasFiscais tomadores={tomadores} onRefresh={loadBootstrap} clienteAtivo={clienteAtivo} onNavigate={setActivePage} />
       case 'tomadores': return <Tomadores onRefresh={loadBootstrap} />
-      case 'importar': return <Importar />
+      case 'importar': return <Importar clienteAtivo={clienteAtivo} />
       case 'captura': return <Captura />
-      case 'emissao': return <Emissao prestador={prestador} />
-      case 'config': return <Configuracoes onRefresh={loadBootstrap} />
+      case 'emissao': return <Emissao prestador={prestador} clienteAtivo={clienteAtivo} />
+      case 'config': return <Configuracoes onRefresh={loadBootstrap} clienteAtivo={clienteAtivo} />
       case 'xml': return <XmlHistorico />
       default: return <Dashboard />
     }
@@ -85,6 +109,38 @@ export default function App() {
           </div>
         </div>
 
+        {/* Seletor de Cliente */}
+        <div style={{ padding: '8px 12px' }}>
+          <select
+            value={clienteAtivo?.id || ''}
+            onChange={handleClienteChange}
+            style={{
+              width: '100%',
+              padding: '8px 10px',
+              borderRadius: 6,
+              border: '1px solid var(--border)',
+              background: 'var(--bg-raised)',
+              color: 'var(--text-primary)',
+              fontSize: 12,
+              cursor: 'pointer',
+            }}
+          >
+            <option value="">Todos os clientes</option>
+            {clientes.map(c => (
+              <option key={c.id} value={c.id}>
+                {!c.ativo ? '[INATIVO] ' : ''}{c.tradeName || c.legalName} — {c.document || 'Sem CNPJ'}
+              </option>
+            ))}
+          </select>
+          {clienteAtivo && (
+            <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.4 }}>
+              <div><strong>{clienteAtivo.legalName}</strong></div>
+              <div>{clienteAtivo.document}</div>
+              <div>{clienteAtivo.taxRegime} — {clienteAtivo.city}/{clienteAtivo.state}</div>
+            </div>
+          )}
+        </div>
+
         <nav className="sidebar__nav">
           {SIDEBAR_ITEMS.map(group => (
             <div key={group.group}>
@@ -107,12 +163,20 @@ export default function App() {
           ))}
         </nav>
 
-        <div className="sidebar__user">
-          <div className="sidebar__user-inner">
-            <div className="sidebar__avatar">NF</div>
+        <div className="sidebar__responsaveis">
+          <div className="sidebar__resp-label">RESPONSAVEIS</div>
+          <div className="sidebar__resp-item">
+            <div className="sidebar__resp-avatar sidebar__resp-avatar--human">DV</div>
             <div>
-              <div className="sidebar__user-name">NFS-e System</div>
-              <div className="sidebar__user-role">v1.0</div>
+              <div className="sidebar__resp-name">Deyvison</div>
+              <div className="sidebar__resp-cargo">Coord. Fiscal/Societario</div>
+            </div>
+          </div>
+          <div className="sidebar__resp-item">
+            <div className="sidebar__resp-avatar sidebar__resp-avatar--ai">CP</div>
+            <div>
+              <div className="sidebar__resp-name">Campelo</div>
+              <div className="sidebar__resp-cargo">Tax Manager (IA)</div>
             </div>
           </div>
         </div>
@@ -125,6 +189,14 @@ export default function App() {
             <span className="topbar__breadcrumb-root">NFS-e</span>
             <span className="topbar__breadcrumb-sep">/</span>
             <span className="topbar__breadcrumb-current">{PAGE_LABELS[activePage] || 'Dashboard'}</span>
+            {clienteAtivo && (
+              <>
+                <span className="topbar__breadcrumb-sep">/</span>
+                <span style={{ color: 'var(--primary)', fontWeight: 600 }}>
+                  {clienteAtivo.tradeName || clienteAtivo.legalName?.split(' ').slice(0, 2).join(' ')}
+                </span>
+              </>
+            )}
           </div>
           <div className="topbar__live">
             <span className="topbar__dot">

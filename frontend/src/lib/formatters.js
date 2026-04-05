@@ -39,7 +39,12 @@ export function formatNumber(value) {
 
 export function formatDate(value) {
   if (!value) return '--'
-  const date = new Date(value)
+  // Datas "YYYY-MM-DD" são interpretadas como UTC pelo JS, causando -1 dia em BRT.
+  // Adiciona T12:00 para evitar o problema de timezone.
+  const raw = typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
+    ? value + 'T12:00:00'
+    : value
+  const date = new Date(raw)
   if (Number.isNaN(date.getTime())) return toText(value, '--')
   return date.toLocaleDateString('pt-BR')
 }

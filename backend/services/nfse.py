@@ -1,11 +1,28 @@
+from calendar import monthrange
 from datetime import date
 from typing import Optional
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from backend.models.nfse import Nfse
 from backend.utils.normalize import normalize_text, normalize_number
+
+
+def _filtro_cliente(q, cliente_id=None, cliente_doc=None):
+    """Filtra notas por cliente: pelo ID do Gesthub OU pelo CNPJ (prestador ou tomador)."""
+    if cliente_doc:
+        doc_limpo = cliente_doc.replace(".", "").replace("/", "").replace("-", "")
+        return q.filter(
+            or_(
+                Nfse.cliente_gesthub_id == cliente_id if cliente_id else False,
+                func.replace(func.replace(func.replace(Nfse.prestador_cnpj, ".", ""), "/", ""), "-", "") == doc_limpo,
+                func.replace(func.replace(func.replace(Nfse.tomador_cpf_cnpj, ".", ""), "/", ""), "-", "") == doc_limpo,
+            )
+        )
+    if cliente_id:
+        return q.filter(Nfse.cliente_gesthub_id == cliente_id)
+    return q
 
 
 MESES_LABEL = [
@@ -45,6 +62,8 @@ class NfseService:
             "numero": normalize_text(data.get("numero")),
             "serie": normalize_text(data.get("serie"), "1"),
             "codigo_verificacao": normalize_text(data.get("codigoVerificacao")),
+            # Cliente Gesthub
+            "cliente_gesthub_id": data.get("clienteGesthubId") or None,
             # Prestador
             "prestador_cnpj": normalize_text(data.get("prestadorCnpj")),
             "prestador_inscricao_municipal": normalize_text(data.get("prestadorInscricaoMunicipal")),
@@ -123,20 +142,24 @@ class NfseService:
 
     # ========== DASHBOARD ==========
 
-    def calcular_dashboard(self, db: Session, ano: int, mes: Optional[int]) -> dict:
+    def calcular_dashboard(self, db: Session, ano: int, mes: Optional[int], cliente_id: Optional[int] = None, cliente_doc: Optional[str] = None) -> dict:
         return {
-            "kpis": self._calcular_kpis(db, ano, mes),
-            "evolucaoMensal": self._evolucao_mensal(db, ano),
-            "comparativoMes": self._comparativo_mes(db, ano, mes) if mes else None,
-            "rankingTomadores": self._ranking_tomadores(db, ano, mes),
-            "analiseTributaria": self._analise_tributaria(db, ano, mes),
+            "kpis": self._calcular_kpis(db, ano, mes, cliente_id, cliente_doc),
+            "evolucaoMensal": self._evolucao_mensal(db, ano, cliente_id, cliente_doc),
+            "comparativoMes": self._comparativo_mes(db, ano, mes, cliente_id, cliente_doc) if mes else None,
+            "rankingTomadores": self._ranking_tomadores(db, ano, mes, cliente_id, cliente_doc),
+            "analiseTributaria": self._analise_tributaria(db, ano, mes, cliente_id, cliente_doc),
         }
 
-    def _query_base(self, db: Session, ano: int, mes: Optional[int]):
+    def _query_base(self, db: Session, ano: int, mes: Optional[int], cliente_id: Optional[int] = None, cliente_doc: Optional[str] = None):
         q = db.query(Nfse).filter(Nfse.status != "CANCELADA")
+        q = _filtro_cliente(q, cliente_id, cliente_doc)
         if ano and mes:
-            ref = date(ano, mes, 1)
-            q = q.filter(Nfse.competencia == ref)
+            last_day = monthrange(ano, mes)[1]
+            q = q.filter(
+                Nfse.data_emissao >= date(ano, mes, 1),
+                Nfse.data_emissao <= date(ano, mes, last_day),
+            )
         elif ano:
             q = q.filter(
                 Nfse.data_emissao >= date(ano, 1, 1),
@@ -144,32 +167,50 @@ class NfseService:
             )
         return q
 
-    def _calcular_kpis(self, db: Session, ano: int, mes: Optional[int]) -> dict:
-        q = self._query_base(db, ano, mes)
+    def _calcular_kpis(self, db: Session, ano: int, mes: Optional[int], cliente_id: Optional[int] = None, cliente_doc: Optional[str] = None) -> dict:
+        q = self._query_base(db, ano, mes, cliente_id, cliente_doc)
         notas = q.all()
+
+        # Separar emitidas (cliente é prestador) vs recebidas (cliente é tomador)
+        doc_limpo = (cliente_doc or "").replace(".", "").replace("/", "").replace("-", "")
+        if doc_limpo:
+            emitidas = [n for n in notas if (n.prestador_cnpj or "").replace(".", "").replace("/", "").replace("-", "") == doc_limpo]
+            recebidas = [n for n in notas if (n.tomador_cpf_cnpj or "").replace(".", "").replace("/", "").replace("-", "") == doc_limpo]
+        else:
+            emitidas = notas
+            recebidas = []
+
+        def _sum_impostos(lista):
+            return sum(
+                float(n.valor_iss or 0) + float(n.valor_pis or 0) +
+                float(n.valor_cofins or 0) + float(n.valor_inss or 0) +
+                float(n.valor_ir or 0) + float(n.valor_csll or 0)
+                for n in lista
+            )
 
         total_notas = len(notas)
         total_faturado = sum(float(n.valor_servicos or 0) for n in notas)
-        total_liquido = sum(float(n.valor_liquido or 0) for n in notas)
+        total_impostos = _sum_impostos(notas)
 
-        total_impostos = sum(
-            float(n.valor_iss or 0) + float(n.valor_pis or 0) +
-            float(n.valor_cofins or 0) + float(n.valor_inss or 0) +
-            float(n.valor_ir or 0) + float(n.valor_csll or 0)
-            for n in notas
-        )
+        fat_emitidas = sum(float(n.valor_servicos or 0) for n in emitidas)
+        fat_recebidas = sum(float(n.valor_servicos or 0) for n in recebidas)
+        imp_emitidas = _sum_impostos(emitidas)
+        imp_recebidas = _sum_impostos(recebidas)
 
         canceladas = db.query(func.count(Nfse.id)).filter(Nfse.status == "CANCELADA")
+        canceladas = _filtro_cliente(canceladas, cliente_id, cliente_doc)
         if ano and mes:
-            canceladas = canceladas.filter(Nfse.competencia == date(ano, mes, 1))
+            last_day = monthrange(ano, mes)[1]
+            canceladas = canceladas.filter(
+                Nfse.data_emissao >= date(ano, mes, 1),
+                Nfse.data_emissao <= date(ano, mes, last_day),
+            )
         elif ano:
             canceladas = canceladas.filter(
                 Nfse.data_emissao >= date(ano, 1, 1),
                 Nfse.data_emissao <= date(ano, 12, 31),
             )
         notas_canceladas = canceladas.scalar() or 0
-
-        notas_capturadas = sum(1 for n in notas if getattr(n, 'origem', '') == 'CAPTURADA')
 
         return {
             "totalNotas": total_notas,
@@ -178,18 +219,33 @@ class NfseService:
             "totalImpostos": round(total_impostos, 2),
             "cargaTributariaMedia": round(total_impostos / total_faturado * 100, 1) if total_faturado else 0,
             "notasCanceladas": notas_canceladas,
-            "totalLiquido": round(total_liquido, 2),
-            "notasCapturadas": notas_capturadas,
+            "totalLiquido": round(sum(float(n.valor_liquido or 0) for n in notas), 2),
+            # Detalhamento emitidas vs recebidas
+            "emitidas": {
+                "quantidade": len(emitidas),
+                "faturado": round(fat_emitidas, 2),
+                "impostos": round(imp_emitidas, 2),
+                "ticketMedio": round(fat_emitidas / len(emitidas), 2) if emitidas else 0,
+            },
+            "recebidas": {
+                "quantidade": len(recebidas),
+                "faturado": round(fat_recebidas, 2),
+                "impostos": round(imp_recebidas, 2),
+                "ticketMedio": round(fat_recebidas / len(recebidas), 2) if recebidas else 0,
+            },
         }
 
-    def _evolucao_mensal(self, db: Session, ano: int) -> list:
+    def _evolucao_mensal(self, db: Session, ano: int, cliente_id: Optional[int] = None, cliente_doc: Optional[str] = None) -> list:
         result = []
         for m in range(1, 13):
-            ref = date(ano, m, 1)
-            notas = db.query(Nfse).filter(
-                Nfse.competencia == ref,
+            last_day = monthrange(ano, m)[1]
+            q = db.query(Nfse).filter(
+                Nfse.data_emissao >= date(ano, m, 1),
+                Nfse.data_emissao <= date(ano, m, last_day),
                 Nfse.status != "CANCELADA",
-            ).all()
+            )
+            q = _filtro_cliente(q, cliente_id, cliente_doc)
+            notas = q.all()
 
             total_fat = sum(float(n.valor_servicos or 0) for n in notas)
             total_imp = sum(
@@ -210,12 +266,16 @@ class NfseService:
             })
         return result
 
-    def _comparativo_mes(self, db: Session, ano: int, mes: int) -> dict:
+    def _comparativo_mes(self, db: Session, ano: int, mes: int, cliente_id: Optional[int] = None, cliente_doc: Optional[str] = None) -> dict:
         def _totais(a, m):
-            ref = date(a, m, 1)
-            notas = db.query(Nfse).filter(
-                Nfse.competencia == ref, Nfse.status != "CANCELADA"
-            ).all()
+            last_day = monthrange(a, m)[1]
+            q = db.query(Nfse).filter(
+                Nfse.data_emissao >= date(a, m, 1),
+                Nfse.data_emissao <= date(a, m, last_day),
+                Nfse.status != "CANCELADA",
+            )
+            q = _filtro_cliente(q, cliente_id, cliente_doc)
+            notas = q.all()
             fat = sum(float(n.valor_servicos or 0) for n in notas)
             liq = sum(float(n.valor_liquido or 0) for n in notas)
             return {"totalNotas": len(notas), "totalFaturado": round(fat, 2), "totalLiquido": round(liq, 2)}
@@ -242,8 +302,8 @@ class NfseService:
             },
         }
 
-    def _ranking_tomadores(self, db: Session, ano: int, mes: Optional[int], limit: int = 10) -> list:
-        q = self._query_base(db, ano, mes)
+    def _ranking_tomadores(self, db: Session, ano: int, mes: Optional[int], cliente_id: Optional[int] = None, cliente_doc: Optional[str] = None, limit: int = 10) -> list:
+        q = self._query_base(db, ano, mes, cliente_id, cliente_doc)
         notas = q.all()
 
         por_tomador = {}
@@ -264,8 +324,8 @@ class NfseService:
 
         return ranking
 
-    def _analise_tributaria(self, db: Session, ano: int, mes: Optional[int]) -> dict:
-        q = self._query_base(db, ano, mes)
+    def _analise_tributaria(self, db: Session, ano: int, mes: Optional[int], cliente_id: Optional[int] = None, cliente_doc: Optional[str] = None) -> dict:
+        q = self._query_base(db, ano, mes, cliente_id, cliente_doc)
         notas = q.all()
 
         total_iss = sum(float(n.valor_iss or 0) for n in notas)

@@ -55,8 +55,8 @@ export default function Importar() {
               </select>
             </label>
             <label>
-              Arquivo Excel
-              <input type="file" accept=".xlsx,.xls" onChange={e => setFile(e.target.files?.[0] || null)} />
+              Arquivo (Excel ou XML)
+              <input type="file" accept=".xlsx,.xls,.xml" onChange={e => setFile(e.target.files?.[0] || null)} />
             </label>
           </div>
 

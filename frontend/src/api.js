@@ -1,6 +1,6 @@
 const API_BASE = import.meta.env.VITE_API_URL || '/api'
 
-async function request(path, options = {}) {
+export async function request(path, options = {}) {
   const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData
   const response = await fetch(`${API_BASE}${path}`, {
     headers: {
@@ -54,6 +54,13 @@ export async function deleteTomador(id) {
   await request(`/tomadores/${id}`, { method: 'DELETE' })
 }
 
+export async function buscarTomadorPorDocumento(documento) {
+  const doc = documento.replace(/\D/g, '')
+  const response = await fetch(`${API_BASE}/tomadores/por-documento/${doc}`)
+  const payload = await response.json()
+  return payload
+}
+
 // --- NFS-e ---
 export async function fetchNfses(filters = {}) {
   const params = new URLSearchParams()
@@ -62,14 +69,25 @@ export async function fetchNfses(filters = {}) {
   if (filters.ano) params.set('ano', filters.ano)
   if (filters.mes) params.set('mes', filters.mes)
   if (filters.tomadorId) params.set('tomador_id', filters.tomadorId)
+  if (filters.clienteId) params.set('cliente_id', filters.clienteId)
+  if (filters.clienteDoc) params.set('cliente_doc', filters.clienteDoc)
   const response = await request(`/nfses?${params}`)
   return response.data
 }
 
-export async function fetchNfseDashboard(ano, mes) {
+export async function fetchNfseDashboard(ano, mes, clienteId, clienteDoc) {
   const params = new URLSearchParams({ ano })
   if (mes) params.set('mes', mes)
+  if (clienteId) params.set('cliente_id', clienteId)
+  if (clienteDoc) params.set('cliente_doc', clienteDoc)
   const response = await request(`/nfses/dashboard?${params}`)
+  return response.data
+}
+
+export async function fetchSugestoesEmissao(clienteDoc) {
+  const doc = (clienteDoc || '').replace(/\D/g, '')
+  if (!doc) return []
+  const response = await request(`/nfses/sugestoes/${doc}`)
   return response.data
 }
 
@@ -110,6 +128,55 @@ export async function cancelarNfse(id, motivo) {
   return response
 }
 
+// --- Emissao Nuvem Fiscal ---
+export async function emitirNfseNuvem(ids) {
+  const response = await request('/emissao/nuvem-fiscal/emitir', { method: 'POST', body: JSON.stringify({ ids }) })
+  return response
+}
+
+export async function consultarNfseNuvem(nuvemId) {
+  const response = await request(`/emissao/nuvem-fiscal/consultar/${nuvemId}`)
+  return response
+}
+
+export async function statusNfseNuvem(nuvemId) {
+  const response = await request(`/emissao/nuvem-fiscal/status/${nuvemId}`)
+  return response
+}
+
+export function pdfNfseNuvemUrl(nuvemId) {
+  return `${API_BASE}/emissao/nuvem-fiscal/pdf/${nuvemId}`
+}
+
+export async function pollProcessando() {
+  const response = await request('/emissao/nuvem-fiscal/poll-processando', { method: 'POST' })
+  return response
+}
+
+export async function cancelarNfseNuvem(nuvemId, motivo) {
+  const response = await request(`/emissao/nuvem-fiscal/cancelar/${nuvemId}`, {
+    method: 'POST', body: JSON.stringify({ motivo })
+  })
+  return response
+}
+
+export async function cadastrarEmpresaNuvem() {
+  const response = await request('/emissao/nuvem-fiscal/empresa/cadastrar', { method: 'POST' })
+  return response
+}
+
+export async function configurarNfseNuvem() {
+  const response = await request('/emissao/nuvem-fiscal/empresa/configurar-nfse', { method: 'POST' })
+  return response
+}
+
+export async function uploadCertificadoNuvem(certificadoBase64, senha) {
+  const response = await request('/emissao/nuvem-fiscal/empresa/certificado', {
+    method: 'POST', body: JSON.stringify({ certificado: certificadoBase64, senha })
+  })
+  return response
+}
+
 // --- Prestador Config ---
 export async function fetchPrestadorConfig() {
   const response = await request('/prestador')
@@ -143,6 +210,26 @@ export async function uploadCertificado(pfxBase64, senha) {
     body: JSON.stringify({ pfxBase64, senha }),
   })
   return response
+}
+
+// --- Clientes (Gesthub) ---
+export async function fetchClientes(search = '') {
+  const params = search ? `?search=${encodeURIComponent(search)}` : ''
+  const response = await request(`/clientes${params}`)
+  return response.data
+}
+
+export async function fetchClienteByCnpj(cnpj) {
+  const response = await request(`/clientes/${encodeURIComponent(cnpj)}`)
+  return response.data
+}
+
+// --- Consulta CNPJ (Receita Federal + Gesthub) ---
+export async function consultarCnpj(cnpj) {
+  const clean = cnpj.replace(/\D/g, '')
+  const response = await request(`/cnpj/${clean}`)
+  // response = { ok, data: {...cnpj data}, gesthub: {...update result} }
+  return response.data
 }
 
 // --- XML Logs ---

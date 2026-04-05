@@ -54,6 +54,11 @@ class PrestadorConfig(Base):
     optante_simples: Mapped[bool] = mapped_column(Boolean, default=False)
     incentivo_fiscal: Mapped[bool] = mapped_column(Boolean, default=False)
 
+    # Nuvem Fiscal API
+    nuvem_fiscal_client_id: Mapped[str] = mapped_column(String(200), default="")
+    nuvem_fiscal_client_secret: Mapped[str] = mapped_column(String(500), default="")
+    nuvem_fiscal_ambiente: Mapped[str] = mapped_column(String(20), default="homologacao")  # homologacao / producao
+
     # Numeracao RPS
     ultimo_rps: Mapped[int] = mapped_column(Integer, default=0)
     serie_rps: Mapped[str] = mapped_column(String(10), default="1")
@@ -95,5 +100,10 @@ class PrestadorConfig(Base):
             "incentivoFiscal": bool(self.incentivo_fiscal),
             "ultimoRps": self.ultimo_rps or 0,
             "serieRps": self.serie_rps or "1",
+            # Nuvem Fiscal
+            "nuvemFiscalClientId": self.nuvem_fiscal_client_id or "",
+            "nuvemFiscalClientSecret": self.nuvem_fiscal_client_secret or "",
+            "nuvemFiscalAmbiente": self.nuvem_fiscal_ambiente or "homologacao",
+            "nuvemFiscalConfigurado": bool(self.nuvem_fiscal_client_id and self.nuvem_fiscal_client_secret),
             "updatedAt": self.updated_at.isoformat() if self.updated_at else None,
         }

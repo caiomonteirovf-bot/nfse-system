@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react'
-import { fetchPrestadorConfig, updatePrestadorConfig, uploadCertificado } from '../api'
+import {
+  fetchPrestadorConfig, updatePrestadorConfig, uploadCertificado,
+  cadastrarEmpresaNuvem, configurarNfseNuvem, consultarCnpj,
+} from '../api'
 import { UF_OPTIONS } from '../lib/constants'
 
-export default function Configuracoes({ onRefresh }) {
+export default function Configuracoes({ onRefresh, clienteAtivo }) {
   const [form, setForm] = useState(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -10,6 +13,11 @@ export default function Configuracoes({ onRefresh }) {
   const [certSenha, setCertSenha] = useState('')
   const [certMessage, setCertMessage] = useState('')
   const [uploadingCert, setUploadingCert] = useState(false)
+  const [nuvemAction, setNuvemAction] = useState('')
+  const [nuvemMsg, setNuvemMsg] = useState('')
+  const [cnpjLoading, setCnpjLoading] = useState(false)
+  const [cnpjMsg, setCnpjMsg] = useState('')
+  const [sociosData, setSociosData] = useState(null)
 
   useEffect(() => {
     fetchPrestadorConfig()
@@ -18,7 +26,64 @@ export default function Configuracoes({ onRefresh }) {
       .finally(() => setLoading(false))
   }, [])
 
+  // Quando clienteAtivo muda, pre-preenche campos do Gesthub
+  useEffect(() => {
+    if (!clienteAtivo || !form) return
+    setForm(f => ({
+      ...f,
+      cnpj: clienteAtivo.document || f.cnpj,
+      razaoSocial: clienteAtivo.legalName || f.razaoSocial,
+      nomeFantasia: clienteAtivo.tradeName || f.nomeFantasia,
+      cidade: (clienteAtivo.city && clienteAtivo.city !== '--') ? clienteAtivo.city : f.cidade,
+      uf: (clienteAtivo.state && clienteAtivo.state !== '--') ? clienteAtivo.state : f.uf,
+      email: clienteAtivo.email || f.email,
+      telefone: clienteAtivo.phone || f.telefone,
+    }))
+    setSociosData(null)
+    setCnpjMsg('')
+  }, [clienteAtivo?.id])
+
   const setField = (key, val) => setForm(f => ({ ...f, [key]: val }))
+
+  const handleConsultarCnpj = async () => {
+    const cnpj = form?.cnpj
+    if (!cnpj || cnpj.replace(/\D/g, '').length !== 14) {
+      setCnpjMsg('Informe um CNPJ válido com 14 dígitos.')
+      return
+    }
+    setCnpjLoading(true)
+    setCnpjMsg('')
+    setSociosData(null)
+    try {
+      const dados = await consultarCnpj(cnpj)
+      // Preenche todos os campos do form
+      setForm(f => ({
+        ...f,
+        cnpj: dados.cnpj || f.cnpj,
+        razaoSocial: dados.razaoSocial || f.razaoSocial,
+        nomeFantasia: dados.nomeFantasia || f.nomeFantasia,
+        logradouro: dados.logradouro || f.logradouro,
+        numero: dados.numero || f.numero,
+        complemento: dados.complemento || f.complemento,
+        bairro: dados.bairro || f.bairro,
+        cidade: dados.cidade || f.cidade,
+        uf: dados.uf || f.uf,
+        cep: dados.cep || f.cep,
+        codigoMunicipio: dados.codigoMunicipioIbge || dados.codigoMunicipio || f.codigoMunicipio,
+        email: dados.email || f.email,
+        telefone: dados.telefone || f.telefone,
+        codigoCnaePadrao: dados.cnaePrincipal || f.codigoCnaePadrao,
+      }))
+      if (dados.socios?.length) {
+        setSociosData(dados.socios)
+      }
+      setCnpjMsg(`Dados carregados da Receita Federal. ${dados.situacao || ''}`)
+    } catch (e) {
+      setCnpjMsg('Erro: ' + e.message)
+    } finally {
+      setCnpjLoading(false)
+    }
+  }
 
   const handleSave = async () => {
     setSaving(true)
@@ -48,8 +113,23 @@ export default function Configuracoes({ onRefresh }) {
 
       {/* Dados do Prestador */}
       <div className="panel">
-        <header className="panel__header"><h3>Dados do Prestador</h3></header>
+        <header className="panel__header">
+          <h3>Dados do Prestador</h3>
+          <button
+            className="btn btn--ghost"
+            disabled={cnpjLoading}
+            onClick={handleConsultarCnpj}
+            style={{ fontSize: 12, padding: '4px 12px' }}
+          >
+            {cnpjLoading ? 'Consultando...' : 'Consultar CNPJ na Receita'}
+          </button>
+        </header>
         <div className="panel__body module-content">
+          {cnpjMsg && (
+            <p style={{ marginBottom: 10, fontSize: 13, color: cnpjMsg.startsWith('Erro') ? 'var(--danger)' : 'var(--success)', fontWeight: 600 }}>
+              {cnpjMsg}
+            </p>
+          )}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
             <label>CNPJ *<input value={form.cnpj || ''} onChange={e => setField('cnpj', e.target.value)} /></label>
             <label>Inscricao Municipal<input value={form.inscricaoMunicipal || ''} onChange={e => setField('inscricaoMunicipal', e.target.value)} /></label>
@@ -60,6 +140,38 @@ export default function Configuracoes({ onRefresh }) {
           </div>
         </div>
       </div>
+
+      {/* Sócios (se retornado da consulta CNPJ) */}
+      {sociosData && sociosData.length > 0 && (
+        <div className="panel">
+          <header className="panel__header">
+            <h3>Quadro Societario (Receita Federal)</h3>
+            <span className="badge badge--neutral">{sociosData.length} socio(s)</span>
+          </header>
+          <div className="panel__body module-content">
+            <table style={{ width: '100%', fontSize: 13 }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--border)', textAlign: 'left' }}>
+                  <th style={{ padding: '6px 8px' }}>Nome</th>
+                  <th style={{ padding: '6px 8px' }}>CPF/CNPJ</th>
+                  <th style={{ padding: '6px 8px' }}>Qualificacao</th>
+                  <th style={{ padding: '6px 8px' }}>Entrada</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sociosData.map((s, i) => (
+                  <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
+                    <td style={{ padding: '6px 8px' }}>{s.nome}</td>
+                    <td style={{ padding: '6px 8px', fontFamily: 'monospace' }}>{s.cpfCnpj || '--'}</td>
+                    <td style={{ padding: '6px 8px' }}>{s.qualificacao}</td>
+                    <td style={{ padding: '6px 8px' }}>{s.dataEntrada || '--'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Endereco */}
       <div className="panel">
@@ -139,7 +251,6 @@ export default function Configuracoes({ onRefresh }) {
                   const result = await uploadCertificado(b64, certSenha)
                   if (result.ok) {
                     setCertMessage(`Certificado carregado! CNPJ: ${result.data?.cnpj || ''} - Validade: ${result.data?.validade || ''}`)
-                    // Reload config
                     const updated = await fetchPrestadorConfig()
                     setForm(updated)
                   } else {
@@ -163,9 +274,66 @@ export default function Configuracoes({ onRefresh }) {
         </div>
       </div>
 
+      {/* Nuvem Fiscal */}
+      <div className="panel">
+        <header className="panel__header">
+          <h3>Nuvem Fiscal API</h3>
+          {form.nuvemFiscalConfigurado
+            ? <span className="badge badge--success">Configurado</span>
+            : <span className="badge badge--neutral">Nao configurado</span>
+          }
+        </header>
+        <div className="panel__body module-content">
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+            <label>Client ID *<input value={form.nuvemFiscalClientId || ''} onChange={e => setField('nuvemFiscalClientId', e.target.value)} placeholder="Ex: QwqDuz7RmpzWGmZKv6Wo" /></label>
+            <label>Client Secret *<input type="password" value={form.nuvemFiscalClientSecret || ''} onChange={e => setField('nuvemFiscalClientSecret', e.target.value)} placeholder="Secret" /></label>
+            <label>
+              Ambiente
+              <select value={form.nuvemFiscalAmbiente || 'homologacao'} onChange={e => setField('nuvemFiscalAmbiente', e.target.value)}>
+                <option value="homologacao">Homologacao (Sandbox)</option>
+                <option value="producao">Producao</option>
+              </select>
+            </label>
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+            <button
+              className="btn btn--ghost"
+              disabled={!!nuvemAction || !form.nuvemFiscalClientId}
+              onClick={async () => {
+                setNuvemAction('cadastrando')
+                setNuvemMsg('')
+                try {
+                  const r = await cadastrarEmpresaNuvem()
+                  setNuvemMsg(r.ok ? 'Empresa cadastrada na Nuvem Fiscal!' : 'Erro: ' + (r.error || 'Falha'))
+                } catch (e) { setNuvemMsg('Erro: ' + e.message) }
+                finally { setNuvemAction('') }
+              }}
+            >{nuvemAction === 'cadastrando' ? 'Cadastrando...' : 'Cadastrar Empresa'}</button>
+            <button
+              className="btn btn--ghost"
+              disabled={!!nuvemAction || !form.nuvemFiscalClientId}
+              onClick={async () => {
+                setNuvemAction('configurando')
+                setNuvemMsg('')
+                try {
+                  const r = await configurarNfseNuvem()
+                  setNuvemMsg(r.ok ? 'NFS-e configurada!' : 'Erro: ' + (r.error || 'Falha'))
+                } catch (e) { setNuvemMsg('Erro: ' + e.message) }
+                finally { setNuvemAction('') }
+              }}
+            >{nuvemAction === 'configurando' ? 'Configurando...' : 'Configurar NFS-e'}</button>
+          </div>
+          {nuvemMsg && (
+            <p style={{ marginTop: 8, fontSize: 13, color: nuvemMsg.startsWith('Erro') ? 'var(--danger)' : 'var(--success)', fontWeight: 600 }}>
+              {nuvemMsg}
+            </p>
+          )}
+        </div>
+      </div>
+
       {/* NFS-e Nacional */}
       <div className="panel">
-        <header className="panel__header"><h3>NFS-e Nacional (API)</h3></header>
+        <header className="panel__header"><h3>NFS-e Nacional (API direta)</h3></header>
         <div className="panel__body module-content">
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <label>URL SEFIN<input value={form.nfseNacionalUrl || ''} onChange={e => setField('nfseNacionalUrl', e.target.value)} placeholder="https://sefin.nfse.gov.br/SefinNacional" /></label>

@@ -32,7 +32,7 @@ function DeltaArrow({ value }) {
   )
 }
 
-export default function Dashboard() {
+export default function Dashboard({ clienteId, clienteDoc }) {
   const [ano, setAno] = useState(currentYear)
   const [mes, setMes] = useState('')
   const [data, setData] = useState(null)
@@ -41,14 +41,14 @@ export default function Dashboard() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const result = await fetchNfseDashboard(ano, mes || null)
+      const result = await fetchNfseDashboard(ano, mes || null, clienteId, clienteDoc)
       setData(result)
     } catch (e) {
       console.error(e)
     } finally {
       setLoading(false)
     }
-  }, [ano, mes])
+  }, [ano, mes, clienteId, clienteDoc])
 
   useEffect(() => { load() }, [load])
 
@@ -58,14 +58,18 @@ export default function Dashboard() {
   const ranking = data?.rankingTomadores || []
   const tributaria = data?.analiseTributaria
 
+  const emitKpis = kpis?.emitidas
+  const recebKpis = kpis?.recebidas
+
   // Status distribution for PieChart
   const statusData = useMemo(() => {
     if (!kpis) return []
     const items = []
-    if (kpis.totalNotas > 0) items.push({ name: 'Emitidas', value: kpis.totalNotas })
+    if (emitKpis?.quantidade > 0) items.push({ name: 'Emitidas', value: emitKpis.quantidade })
+    if (recebKpis?.quantidade > 0) items.push({ name: 'Recebidas', value: recebKpis.quantidade })
     if (kpis.notasCanceladas > 0) items.push({ name: 'Canceladas', value: kpis.notasCanceladas })
     return items
-  }, [kpis])
+  }, [kpis, emitKpis, recebKpis])
 
   // Tax breakdown for BarChart
   const taxData = useMemo(() => {
@@ -112,37 +116,78 @@ export default function Dashboard() {
 
       {kpis && (
         <>
-          {/* KPI Grid */}
-          <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
+          {/* Resumo Geral */}
+          <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))' }}>
             <article className="kpi-card" style={{ '--item-index': 0 }}>
               <div className="kpi-card__header"><p className="kpi-card__label">Total Notas</p></div>
               <p className="kpi-card__value">{formatNumber(kpis.totalNotas)}</p>
             </article>
             <article className="kpi-card" style={{ '--item-index': 1 }}>
-              <div className="kpi-card__header"><p className="kpi-card__label">Total Faturado</p></div>
-              <p className="kpi-card__value kpi-card__value--small">{formatCurrency(kpis.totalFaturado)}</p>
-            </article>
-            <article className="kpi-card" style={{ '--item-index': 2 }}>
-              <div className="kpi-card__header"><p className="kpi-card__label">Ticket Medio</p></div>
-              <p className="kpi-card__value kpi-card__value--small">{formatCurrency(kpis.ticketMedio)}</p>
-            </article>
-            <article className="kpi-card" style={{ '--item-index': 3 }}>
               <div className="kpi-card__header"><p className="kpi-card__label">Total Impostos</p></div>
               <p className="kpi-card__value kpi-card__value--small">{formatCurrency(kpis.totalImpostos)}</p>
             </article>
-            <article className="kpi-card" style={{ '--item-index': 4 }}>
+            <article className="kpi-card" style={{ '--item-index': 2 }}>
               <div className="kpi-card__header"><p className="kpi-card__label">Carga Tributaria</p></div>
               <p className="kpi-card__value">{kpis.cargaTributariaMedia}%</p>
             </article>
-            <article className="kpi-card" style={{ '--item-index': 5 }}>
-              <div className="kpi-card__header"><p className="kpi-card__label">Capturadas</p></div>
-              <p className="kpi-card__value">{formatNumber(kpis.notasCapturadas || 0)}</p>
-            </article>
-            <article className="kpi-card" style={{ '--item-index': 6 }}>
+            <article className="kpi-card" style={{ '--item-index': 3 }}>
               <div className="kpi-card__header"><p className="kpi-card__label">Canceladas</p></div>
               <p className="kpi-card__value">{formatNumber(kpis.notasCanceladas)}</p>
             </article>
           </div>
+
+          {/* Emitidas vs Recebidas */}
+          {emitKpis && recebKpis && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              {/* Emitidas */}
+              <div className="panel" style={{ borderLeft: '3px solid #22C55E' }}>
+                <header className="panel__header" style={{ paddingBottom: 4 }}>
+                  <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ color: '#22C55E', fontSize: 18 }}>&#9650;</span> Emitidas
+                    <span style={{ fontSize: 12, fontWeight: 400, color: 'var(--text-muted)' }}>({emitKpis.quantidade} notas)</span>
+                  </h3>
+                </header>
+                <div className="panel__body" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Faturado</div>
+                    <div style={{ fontSize: 22, fontWeight: 700, fontFamily: "'Space Grotesk',sans-serif", color: '#22C55E' }}>{formatCurrency(emitKpis.faturado)}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Ticket Medio</div>
+                    <div style={{ fontSize: 18, fontWeight: 600, fontFamily: "'Space Grotesk',sans-serif" }}>{formatCurrency(emitKpis.ticketMedio)}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Impostos</div>
+                    <div style={{ fontSize: 16, fontWeight: 600, fontFamily: "'Space Grotesk',sans-serif" }}>{formatCurrency(emitKpis.impostos)}</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Recebidas */}
+              <div className="panel" style={{ borderLeft: '3px solid #3B82F6' }}>
+                <header className="panel__header" style={{ paddingBottom: 4 }}>
+                  <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ color: '#3B82F6', fontSize: 18 }}>&#9660;</span> Recebidas
+                    <span style={{ fontSize: 12, fontWeight: 400, color: 'var(--text-muted)' }}>({recebKpis.quantidade} notas)</span>
+                  </h3>
+                </header>
+                <div className="panel__body" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Total Servicos</div>
+                    <div style={{ fontSize: 22, fontWeight: 700, fontFamily: "'Space Grotesk',sans-serif", color: '#3B82F6' }}>{formatCurrency(recebKpis.faturado)}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Ticket Medio</div>
+                    <div style={{ fontSize: 18, fontWeight: 600, fontFamily: "'Space Grotesk',sans-serif" }}>{formatCurrency(recebKpis.ticketMedio)}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Impostos</div>
+                    <div style={{ fontSize: 16, fontWeight: 600, fontFamily: "'Space Grotesk',sans-serif" }}>{formatCurrency(recebKpis.impostos)}</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Charts Row */}
           <div className="panel-grid--two" style={{ display: 'grid', gridTemplateColumns: '1.8fr 1fr', gap: 12 }}>

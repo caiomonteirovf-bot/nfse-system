@@ -61,7 +61,7 @@ export const SIDEBAR_ITEMS = [
   { group: 'OPERACAO', items: [
     { id: 'captura', label: 'Captura NFS-e', icon: 'download' },
     { id: 'importar', label: 'Importar', icon: 'upload' },
-    { id: 'emissao', label: 'Emissao ABRASF', icon: 'send' },
+    { id: 'emissao', label: 'Emissao NFS-e', icon: 'send' },
     { id: 'xml', label: 'Historico XML', icon: 'code' },
   ]},
   { group: 'SISTEMA', items: [
@@ -70,7 +70,10 @@ export const SIDEBAR_ITEMS = [
 ]
 
 export const OPERACAO_TIPOS = [
-  { value: 'ENVIAR_LOTE', label: 'Enviar Lote' },
-  { value: 'CONSULTAR_LOTE', label: 'Consultar Lote' },
-  { value: 'CANCELAR', label: 'Cancelar' },
+  { value: 'ENVIAR_LOTE', label: 'Enviar Lote (ABRASF)' },
+  { value: 'CONSULTAR_LOTE', label: 'Consultar Lote (ABRASF)' },
+  { value: 'CANCELAR', label: 'Cancelar (ABRASF)' },
+  { value: 'NUVEM_FISCAL_EMITIR', label: 'Emitir (Nuvem Fiscal)' },
+  { value: 'NUVEM_FISCAL_CONSULTAR', label: 'Consultar (Nuvem Fiscal)' },
+  { value: 'NUVEM_FISCAL_CANCELAR', label: 'Cancelar (Nuvem Fiscal)' },
 ]

@@ -19,7 +19,8 @@ class Nfse(Base):
     serie: Mapped[str] = mapped_column(String(10), default="1")
     codigo_verificacao: Mapped[str] = mapped_column(String(50), default="")
 
-    # --- Prestador ---
+    # --- Prestador / Cliente Gesthub ---
+    cliente_gesthub_id: Mapped[int | None] = mapped_column(Integer, nullable=True)  # ID do cliente no Gesthub
     prestador_cnpj: Mapped[str] = mapped_column(String(20), default="")
     prestador_inscricao_municipal: Mapped[str] = mapped_column(String(20), default="")
     prestador_razao_social: Mapped[str] = mapped_column(String(200), default="")
@@ -105,6 +106,7 @@ class Nfse(Base):
     def to_dict(self) -> dict:
         return {
             "id": self.id,
+            "clienteGesthubId": self.cliente_gesthub_id,
             "numero": self.numero or "",
             "serie": self.serie or "1",
             "codigoVerificacao": self.codigo_verificacao or "",

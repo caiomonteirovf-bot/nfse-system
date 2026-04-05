@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from backend.database import init_db, get_db
 from backend.models.tomador import Tomador
 from backend.models.prestador import PrestadorConfig
-from backend.routers import tomadores, nfses, emissao, prestador, xml_logs, captura
+from backend.routers import tomadores, nfses, emissao, prestador, xml_logs, captura, clientes, cnpj
 
 app = FastAPI(title="NFS-e System API", version="1.0.0")
 
@@ -41,6 +41,8 @@ app.include_router(emissao.router, prefix="/api")
 app.include_router(prestador.router, prefix="/api")
 app.include_router(xml_logs.router, prefix="/api")
 app.include_router(captura.router, prefix="/api")
+app.include_router(clientes.router, prefix="/api")
+app.include_router(cnpj.router, prefix="/api")
 
 
 @app.get("/api/health")
@@ -83,6 +85,9 @@ def on_startup():
                 codigo_municipio=NFSE_MUNICIPIO_CODIGO,
                 webservice_url=NFSE_WEBSERVICE_URL,
                 ambiente=NFSE_AMBIENTE,
+                nuvem_fiscal_client_id=os.getenv("NUVEM_FISCAL_CLIENT_ID", ""),
+                nuvem_fiscal_client_secret=os.getenv("NUVEM_FISCAL_CLIENT_SECRET", ""),
+                nuvem_fiscal_ambiente=os.getenv("NUVEM_FISCAL_AMBIENTE", "homologacao"),
             )
             db.add(config)
             db.commit()

@@ -55,6 +55,20 @@ def listar_tomadores(
     return {"ok": True, "data": [t.to_dict() for t in items]}
 
 
+@router.get("/por-documento/{documento}")
+def buscar_tomador_por_documento(documento: str, db: Session = Depends(get_db)):
+    doc_limpo = documento.replace(".", "").replace("/", "").replace("-", "").strip()
+    if not doc_limpo:
+        raise HTTPException(status_code=400, detail="Documento invalido.")
+    from sqlalchemy import func
+    item = db.query(Tomador).filter(
+        func.replace(func.replace(func.replace(Tomador.cpf_cnpj, ".", ""), "/", ""), "-", "") == doc_limpo
+    ).first()
+    if not item:
+        return {"ok": False, "data": None}
+    return {"ok": True, "data": item.to_dict()}
+
+
 @router.get("/{tomador_id}")
 def obter_tomador(tomador_id: int, db: Session = Depends(get_db)):
     item = db.get(Tomador, tomador_id)

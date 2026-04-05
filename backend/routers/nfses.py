@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session, joinedload
 from backend.database import get_db
 from backend.models.nfse import Nfse
 from backend.services.nfse import nfse_service
-from backend.services.importacao import importar_excel
+from backend.services.importacao import importar_excel, importar_xml
 
 router = APIRouter(prefix="/nfses", tags=["nfses"])
 
@@ -21,10 +21,24 @@ def listar_nfses(
     ano: int = Query(None),
     mes: int = Query(None),
     tomador_id: int = Query(None),
+    cliente_id: int = Query(None),
+    cliente_doc: str = Query(None),
     db: Session = Depends(get_db),
 ):
     query = db.query(Nfse).options(joinedload(Nfse.tomador))
 
+    if cliente_doc:
+        doc_limpo = cliente_doc.replace(".", "").replace("/", "").replace("-", "")
+        from sqlalchemy import or_, func
+        query = query.filter(
+            or_(
+                Nfse.cliente_gesthub_id == cliente_id if cliente_id else False,
+                func.replace(func.replace(func.replace(Nfse.prestador_cnpj, ".", ""), "/", ""), "-", "") == doc_limpo,
+                func.replace(func.replace(func.replace(Nfse.tomador_cpf_cnpj, ".", ""), "/", ""), "-", "") == doc_limpo,
+            )
+        )
+    elif cliente_id:
+        query = query.filter(Nfse.cliente_gesthub_id == cliente_id)
     if search:
         pattern = f"%{search.strip()}%"
         query = query.filter(
@@ -36,8 +50,12 @@ def listar_nfses(
     if status:
         query = query.filter(Nfse.status == status.strip().upper())
     if ano and mes:
-        ref = date(ano, mes, 1)
-        query = query.filter(Nfse.competencia == ref)
+        from calendar import monthrange
+        last_day = monthrange(ano, mes)[1]
+        query = query.filter(
+            Nfse.data_emissao >= date(ano, mes, 1),
+            Nfse.data_emissao <= date(ano, mes, last_day),
+        )
     elif ano:
         query = query.filter(
             Nfse.data_emissao >= date(ano, 1, 1),
@@ -50,15 +68,65 @@ def listar_nfses(
     return {"ok": True, "data": [n.to_dict() for n in items]}
 
 
+# ========== SUGESTOES PARA EMISSAO ==========
+
+@router.get("/sugestoes/{cliente_doc}")
+def sugestoes_emissao(cliente_doc: str, db: Session = Depends(get_db)):
+    """Retorna últimas descrições e dados usados nas notas do prestador (cliente).
+
+    Usado para auto-preencher o formulário de emissão com base no histórico.
+    """
+    doc_limpo = cliente_doc.replace(".", "").replace("/", "").replace("-", "")
+    from sqlalchemy import func, or_
+
+    # Buscar notas onde o cliente é o prestador (quem emite)
+    query = db.query(Nfse).filter(
+        or_(
+            func.replace(func.replace(func.replace(
+                Nfse.prestador_cnpj, ".", ""), "/", ""), "-", "") == doc_limpo,
+            Nfse.cliente_gesthub_id == db.query(Nfse.cliente_gesthub_id).filter(
+                func.replace(func.replace(func.replace(
+                    Nfse.prestador_cnpj, ".", ""), "/", ""), "-", "") == doc_limpo
+            ).limit(1).scalar_subquery(),
+        )
+    ).filter(
+        Nfse.descricao_servico != "",
+        Nfse.descricao_servico.isnot(None),
+    ).order_by(Nfse.data_emissao.desc(), Nfse.id.desc()).limit(20)
+
+    notas = query.all()
+
+    # Descrições únicas (mantendo ordem da mais recente)
+    descricoes_vistas = set()
+    descricoes = []
+    for n in notas:
+        desc = (n.descricao_servico or "").strip()
+        if desc and desc not in descricoes_vistas:
+            descricoes_vistas.add(desc)
+            descricoes.append({
+                "descricao": desc,
+                "valor": float(n.valor_servicos or 0),
+                "aliquotaIss": float(n.aliquota_iss or 0),
+                "tomador": n.tomador_razao_social or "",
+                "data": n.data_emissao.isoformat() if n.data_emissao else "",
+            })
+        if len(descricoes) >= 5:
+            break
+
+    return {"ok": True, "data": descricoes}
+
+
 # ========== DASHBOARD ==========
 
 @router.get("/dashboard")
 def dashboard_nfses(
     ano: int = Query(...),
     mes: int = Query(None),
+    cliente_id: int = Query(None),
+    cliente_doc: str = Query(None),
     db: Session = Depends(get_db),
 ):
-    data = nfse_service.calcular_dashboard(db, ano, mes)
+    data = nfse_service.calcular_dashboard(db, ano, mes, cliente_id=cliente_id, cliente_doc=cliente_doc)
     return {"ok": True, "data": data}
 
 
@@ -134,11 +202,16 @@ async def importar_nfses(
     db: Session = Depends(get_db),
 ):
     try:
-        import pandas as pd
-
         content = await file.read()
-        df = pd.read_excel(io.BytesIO(content))
-        result = importar_excel(db, df, ano, mes)
+        filename = (file.filename or "").lower()
+
+        if filename.endswith(".xml"):
+            result = importar_xml(db, content)
+        else:
+            import pandas as pd
+            df = pd.read_excel(io.BytesIO(content))
+            result = importar_excel(db, df, ano, mes)
+
         db.commit()
         return {"ok": True, "data": result}
     except Exception as e:
