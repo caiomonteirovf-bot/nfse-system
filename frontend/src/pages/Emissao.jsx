@@ -225,7 +225,10 @@ export default function Emissao({ prestador, clienteAtivo }) {
       } else {
         await createTomador(payload)
       }
-    } catch { /* tomador ja existe ou erro nao critico */ }
+      alert('Tomador salvo com sucesso!')
+    } catch (err) {
+      alert(`Erro ao salvar tomador: ${err.message}`)
+    }
   }
 
   const handleCriarEEmitir = async () => {
