@@ -316,7 +316,8 @@ def _build_dps_payload(nfse: Nfse, config: PrestadorConfig, prestador_data: dict
         trib = {"tribMun": trib_mun, "tribFed": trib_fed}
         v_serv_prest = {"vServ": valor, "vReceb": valor}
 
-    referencia = nfse.numero or f"nfse-{nfse.id}-{int(agora.timestamp())}"
+    # Referência SEMPRE única — usa ID + timestamp para evitar duplicata na Nuvem Fiscal
+    referencia = f"nfse-{nfse.id}-{int(agora.timestamp())}"
 
     payload = {
         "ambiente": ambiente,
