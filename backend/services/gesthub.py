@@ -71,6 +71,47 @@ async def get_cliente_by_cnpj(cnpj: str) -> dict | None:
     return None
 
 
+async def get_cliente_completo_by_cnpj(cnpj: str) -> dict | None:
+    """Busca cliente por CNPJ com todos os campos fiscais do Gesthub."""
+    data = await _get_bootstrap()
+    clients = data.get("clients", [])
+    cnpj_limpo = cnpj.replace(".", "").replace("/", "").replace("-", "")
+    for c in clients:
+        doc = (c.get("document") or "").replace(".", "").replace("/", "").replace("-", "")
+        if doc == cnpj_limpo:
+            return c
+    return None
+
+
+async def get_prestador_data(cnpj: str) -> dict | None:
+    """Busca dados do prestador no Gesthub e formata para emissão NFS-e.
+
+    Retorna dict compatível com o que _build_dps_payload espera.
+    """
+    cliente = await get_cliente_completo_by_cnpj(cnpj)
+    if not cliente:
+        return None
+
+    return {
+        "cnpj": (cliente.get("document") or "").replace(".", "").replace("/", "").replace("-", ""),
+        "razao_social": cliente.get("legalName", ""),
+        "nome_fantasia": cliente.get("tradeName", ""),
+        "inscricao_municipal": cliente.get("inscricaoMunicipal", ""),
+        "codigo_municipio": cliente.get("codigoMunicipioIbge", ""),
+        "optante_simples": bool(cliente.get("optanteSimples")),
+        "cnae": cliente.get("cnaePrincipal", ""),
+        "logradouro": cliente.get("logradouro", ""),
+        "numero_endereco": cliente.get("numeroEndereco", ""),
+        "complemento": cliente.get("complemento", ""),
+        "bairro": cliente.get("bairro", ""),
+        "cidade": cliente.get("city", ""),
+        "uf": cliente.get("state", ""),
+        "cep": (cliente.get("cep") or "").replace("-", ""),
+        "email": cliente.get("email", ""),
+        "telefone": cliente.get("phone", ""),
+    }
+
+
 async def search_clientes(term: str) -> list[dict]:
     """Busca clientes por nome ou CNPJ."""
     clientes = await get_clientes()

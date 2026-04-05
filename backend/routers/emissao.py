@@ -45,11 +45,31 @@ async def consultar_lote_endpoint(protocolo: str, db: Session = Depends(get_db))
 
 @router.post("/nuvem-fiscal/emitir")
 async def emitir_nfse_nuvem(body: dict, db: Session = Depends(get_db)):
-    """Emite NFS-e(s) via Nuvem Fiscal API."""
+    """Emite NFS-e(s) via Nuvem Fiscal API.
+
+    Body:
+      ids: list[int] — IDs das NFS-e para emitir
+      prestador_cnpj: str (opcional) — CNPJ do prestador. Se informado,
+        busca dados completos no Gesthub e usa como prestador dinâmico
+        em vez do PrestadorConfig fixo.
+    """
     ids = body.get("ids", [])
     if not ids:
         raise HTTPException(status_code=400, detail="Nenhuma NFS-e selecionada.")
-    result = await nuvem_fiscal.emitir_nfse(db, ids)
+
+    prestador_cnpj = body.get("prestador_cnpj", "")
+    prestador_data = None
+
+    if prestador_cnpj:
+        from backend.services.gesthub import get_prestador_data
+        prestador_data = await get_prestador_data(prestador_cnpj)
+        if not prestador_data:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Prestador com CNPJ {prestador_cnpj} não encontrado no Gesthub."
+            )
+
+    result = await nuvem_fiscal.emitir_nfse(db, ids, prestador_data=prestador_data)
     return result
 
 

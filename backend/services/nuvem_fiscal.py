@@ -186,18 +186,26 @@ async def upload_certificado_nuvem(db: Session, pfx_base64: str, senha: str) -> 
 # EMISSÃO NFS-e
 # ============================================
 
-def _build_dps_payload(nfse: Nfse, config: PrestadorConfig) -> dict:
+def _build_dps_payload(nfse: Nfse, config: PrestadorConfig, prestador_data: dict | None = None) -> dict:
     """Monta o payload DPS no formato NFS-e Nacional para a Nuvem Fiscal API.
 
     Formato: { ambiente, referencia, infDPS: { tpAmb, dhEmi, prest, toma, serv, valores } }
     Ref: https://dev.nuvemfiscal.com.br/docs/api#tag/Nfse/operation/EmitirNfse
+
+    Args:
+        prestador_data: Dados dinâmicos do prestador (Gesthub). Se fornecido,
+            sobrescreve campos do config para CNPJ, razão social, etc.
 
     Regras de regime tributário:
     - opSimpNac=3 (ME/EPP Simples Nacional): sem pAliq/vISSQN/vReceb/tribFed,
       usar pTotTribSN no totTrib
     - Regime Normal: inclui pAliq, vISSQN, vBC, tribFed com piscofins
     """
-    cnpj_prestador = (config.cnpj or "").replace(".", "").replace("/", "").replace("-", "")
+    # Se prestador_data (Gesthub), usa ele; senão, cai no config fixo
+    if prestador_data:
+        cnpj_prestador = prestador_data.get("cnpj", "")
+    else:
+        cnpj_prestador = (config.cnpj or "").replace(".", "").replace("/", "").replace("-", "")
     doc_tomador = (nfse.tomador_cpf_cnpj or "").replace(".", "").replace("/", "").replace("-", "")
     is_cnpj = len(doc_tomador) == 14
 
@@ -205,7 +213,7 @@ def _build_dps_payload(nfse: Nfse, config: PrestadorConfig) -> dict:
     ambiente = "producao" if nuvem and nuvem["ambiente"] == "producao" else "homologacao"
     tp_amb = 1 if ambiente == "producao" else 2
 
-    is_simples = bool(config.optante_simples)
+    is_simples = prestador_data.get("optante_simples", False) if prestador_data else bool(config.optante_simples)
 
     agora = datetime.now(BRT) - timedelta(minutes=10)  # margem para clock drift
     dh_emi = agora.strftime("%Y-%m-%dT%H:%M:%S")  # sem timezone offset
@@ -228,8 +236,8 @@ def _build_dps_payload(nfse: Nfse, config: PrestadorConfig) -> dict:
     if len(c_trib_mun) > 3:
         c_trib_mun = c_trib_mun[:3]
 
-    # CNAE
-    cnae = nfse.codigo_cnae or config.codigo_cnae or ""
+    # CNAE — prestador_data do Gesthub tem prioridade
+    cnae = nfse.codigo_cnae or (prestador_data.get("cnae", "") if prestador_data else "") or config.codigo_cnae or ""
 
     # --- Tomador ---
     toma = {
@@ -335,8 +343,13 @@ def _ensure_tomador(db: Session, nfse: Nfse) -> None:
     nfse.tomador_id = tomador.id
 
 
-async def emitir_nfse(db: Session, nfse_ids: list[int]) -> dict:
-    """Emite NFS-e(s) via Nuvem Fiscal API."""
+async def emitir_nfse(db: Session, nfse_ids: list[int], prestador_data: dict | None = None) -> dict:
+    """Emite NFS-e(s) via Nuvem Fiscal API.
+
+    Args:
+        prestador_data: Dados do prestador do Gesthub (dinâmico).
+            Se None, usa PrestadorConfig fixo.
+    """
     config = db.query(PrestadorConfig).first()
     if not config:
         return {"ok": False, "error": "Configuração do prestador não encontrada."}
@@ -362,7 +375,7 @@ async def emitir_nfse(db: Session, nfse_ids: list[int]) -> dict:
                 continue
 
             try:
-                payload = _build_dps_payload(nfse, config)
+                payload = _build_dps_payload(nfse, config, prestador_data=prestador_data)
 
                 nfse.status = "PROCESSANDO"
                 db.commit()
