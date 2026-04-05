@@ -3,6 +3,7 @@ import {
   fetchNfses, createNfse, deleteNfse, emitirNfseLote, consultarLoteNfse,
   emitirNfseNuvem, pdfNfseNuvemUrl, cancelarNfse, request, buscarTomadorPorDocumento,
   updateTomador, createTomador, fetchSugestoesEmissao, pollProcessando,
+  fetchEmpresaByCnpj,
 } from '../api'
 import { formatCurrency, formatDate } from '../lib/formatters'
 
@@ -77,6 +78,15 @@ export default function Emissao({ prestador, clienteAtivo }) {
   const [showSugestoes, setShowSugestoes] = useState(false)
   const [recentes, setRecentes] = useState([])
   const [recentesLoading, setRecentesLoading] = useState(false)
+  const [empresaConfig, setEmpresaConfig] = useState(null)
+
+  // Lookup empresa config when client changes
+  useEffect(() => {
+    if (!clienteAtivo?.document) { setEmpresaConfig(null); return }
+    fetchEmpresaByCnpj(clienteAtivo.document)
+      .then(r => setEmpresaConfig(r.ok ? r.data : null))
+      .catch(() => setEmpresaConfig(null))
+  }, [clienteAtivo?.document])
 
   const regime = detectarRegime(clienteAtivo)
   const isSimples = regime === 'SIMPLES'
@@ -368,9 +378,10 @@ export default function Emissao({ prestador, clienteAtivo }) {
     else setSelected(new Set(notas.map(n => n.id)))
   }
 
-  const nuvemOk = prestador?.nuvemFiscalConfigurado && prestador?.cnpj
+  const nuvemOk = prestador?.nuvemFiscalConfigurado || prestador?.nuvemFiscalClientId
+  const empresaPronta = empresaConfig && empresaConfig.nuvemFiscalCadastrada && empresaConfig.nuvemFiscalCertificado
   const abrasfOk = prestador?.cnpj && prestador?.webserviceUrl
-  const configOk = modo === 'nuvem' ? nuvemOk : abrasfOk
+  const configOk = modo === 'nuvem' ? (nuvemOk && empresaPronta) : abrasfOk
 
   const handleEmitir = async () => {
     if (selected.size === 0) return alert('Selecione ao menos uma NFS-e.')
@@ -462,7 +473,7 @@ export default function Emissao({ prestador, clienteAtivo }) {
                 </div>
               </div>
             ) : (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, fontSize: 13 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, fontSize: 13 }}>
                 <div>
                   <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 2 }}>Prestador</div>
                   <strong>{clienteAtivo.name || clienteAtivo.legalName || '--'}</strong>
@@ -472,14 +483,24 @@ export default function Emissao({ prestador, clienteAtivo }) {
                   <strong>{clienteAtivo.document}</strong>
                 </div>
                 <div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 2 }}>Inscr. Municipal</div>
+                  <strong>{empresaConfig?.inscricaoMunicipal || '--'}</strong>
+                </div>
+                <div>
                   <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 2 }}>Ambiente</div>
-                  <span className={`badge badge--${prestador.nuvemFiscalAmbiente === 'producao' ? 'success' : 'warning'}`}>
-                    {(prestador.nuvemFiscalAmbiente || 'homologacao').toUpperCase()}
+                  <span className={`badge badge--${prestador?.nuvemFiscalAmbiente === 'producao' ? 'success' : 'warning'}`}>
+                    {(prestador?.nuvemFiscalAmbiente || 'homologacao').toUpperCase()}
                   </span>
                 </div>
                 <div>
-                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 2 }}>API</div>
-                  <span className="badge badge--success">Configurado</span>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 2 }}>Empresa</div>
+                  {!empresaConfig ? (
+                    <span className="badge badge--danger">Nao cadastrada</span>
+                  ) : empresaPronta ? (
+                    <span className="badge badge--success">Pronta</span>
+                  ) : (
+                    <span className="badge badge--warning">Config. incompleta</span>
+                  )}
                 </div>
               </div>
             )
@@ -736,7 +757,11 @@ export default function Emissao({ prestador, clienteAtivo }) {
               <button className="btn btn--solid" onClick={handleCriarEEmitir} disabled={novaLoading || !configOk}>
                 {novaLoading ? 'Emitindo...' : 'Criar e Emitir via Nuvem Fiscal'}
               </button>
-              {!configOk && <small style={{ color: 'var(--danger)', alignSelf: 'center' }}>Configure a Nuvem Fiscal antes de emitir</small>}
+              {!configOk && <small style={{ color: 'var(--danger)', alignSelf: 'center' }}>
+                {!nuvemOk ? 'Configure as credenciais Nuvem Fiscal em Configuracoes' :
+                 !empresaConfig ? 'Cadastre esta empresa em Configuracoes primeiro' :
+                 'Complete a configuracao da empresa (cadastrar + certificado) em Configuracoes'}
+              </small>}
             </div>
           </div>
         )}

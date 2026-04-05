@@ -29,5 +29,5 @@ def get_db():
 
 
 def init_db():
-    from backend.models import Tomador, Nfse, PrestadorConfig, XmlLog  # noqa: F401
+    from backend.models import Tomador, Nfse, PrestadorConfig, Empresa, XmlLog  # noqa: F401
     Base.metadata.create_all(bind=engine)

@@ -214,6 +214,47 @@ export async function uploadCertificado(pfxBase64, senha) {
   return response
 }
 
+// --- Empresas (config emissão por CNPJ) ---
+export async function fetchEmpresas() {
+  const response = await request('/empresas')
+  return response.data
+}
+
+export async function fetchEmpresaByCnpj(cnpj) {
+  const clean = cnpj.replace(/\D/g, '')
+  const response = await request(`/empresas/cnpj/${clean}`)
+  return response
+}
+
+export async function createEmpresa(payload) {
+  const response = await request('/empresas', { method: 'POST', body: JSON.stringify(payload) })
+  return response.data
+}
+
+export async function updateEmpresa(id, payload) {
+  const response = await request(`/empresas/${id}`, { method: 'PUT', body: JSON.stringify(payload) })
+  return response.data
+}
+
+export async function deleteEmpresa(id) {
+  const response = await request(`/empresas/${id}`, { method: 'DELETE' })
+  return response
+}
+
+export async function cadastrarEmpresaNuvemPorId(empresaId) {
+  return request(`/empresas/${empresaId}/nuvem-fiscal/cadastrar`, { method: 'POST' })
+}
+
+export async function configurarNfsePorId(empresaId) {
+  return request(`/empresas/${empresaId}/nuvem-fiscal/configurar-nfse`, { method: 'POST' })
+}
+
+export async function uploadCertificadoPorId(empresaId, certificadoBase64, senha) {
+  return request(`/empresas/${empresaId}/nuvem-fiscal/certificado`, {
+    method: 'POST', body: JSON.stringify({ certificado: certificadoBase64, senha })
+  })
+}
+
 // --- Clientes (Gesthub) ---
 export async function fetchClientes(search = '') {
   const params = search ? `?search=${encodeURIComponent(search)}` : ''

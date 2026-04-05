@@ -69,6 +69,25 @@ async def emitir_nfse_nuvem(body: dict, db: Session = Depends(get_db)):
                 detail=f"Prestador com CNPJ {prestador_cnpj} não encontrado no Gesthub."
             )
 
+        # Enriquecer com dados da tabela Empresa (config tributária local)
+        from backend.models.empresa import Empresa
+        cnpj_limpo = prestador_cnpj.replace(".", "").replace("/", "").replace("-", "")
+        empresa_local = db.query(Empresa).filter(Empresa.cnpj == cnpj_limpo).first()
+        if empresa_local:
+            # Empresa local tem prioridade para campos de tributação
+            if empresa_local.inscricao_municipal:
+                prestador_data["inscricao_municipal"] = empresa_local.inscricao_municipal
+            if empresa_local.codigo_cnae:
+                prestador_data["cnae"] = empresa_local.codigo_cnae
+            if empresa_local.codigo_tributacao:
+                prestador_data["codigo_tributacao"] = empresa_local.codigo_tributacao
+            if empresa_local.item_lista_servico:
+                prestador_data["item_lista_servico"] = empresa_local.item_lista_servico
+            if empresa_local.aliquota_iss_padrao:
+                prestador_data["aliquota_iss"] = empresa_local.aliquota_iss_padrao
+            prestador_data["optante_simples"] = empresa_local.optante_simples
+            prestador_data["regime_especial"] = empresa_local.regime_especial
+
     result = await nuvem_fiscal.emitir_nfse(db, ids, prestador_data=prestador_data)
     return result
 

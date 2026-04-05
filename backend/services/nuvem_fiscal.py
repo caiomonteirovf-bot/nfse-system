@@ -184,6 +184,89 @@ async def upload_certificado_nuvem(db: Session, pfx_base64: str, senha: str) -> 
 
 
 # ============================================
+# CADASTRO DE EMPRESA — POR CNPJ (multi-empresa)
+# ============================================
+
+async def cadastrar_empresa_por_cnpj(db: Session, empresa) -> dict:
+    """Cadastra/atualiza empresa na Nuvem Fiscal a partir do modelo Empresa."""
+    config = db.query(PrestadorConfig).first()
+    if not config:
+        return {"ok": False, "error": "Credenciais Nuvem Fiscal não configuradas."}
+
+    base_url, headers = await _authed_client(config)
+    cnpj = (empresa.cnpj or "").replace(".", "").replace("/", "").replace("-", "")
+
+    payload = {
+        "cpf_cnpj": cnpj,
+        "nome_razao_social": empresa.razao_social or "",
+        "nome_fantasia": empresa.nome_fantasia or empresa.razao_social or "",
+        "inscricao_municipal": empresa.inscricao_municipal or "",
+        "optante_simples_nacional": empresa.optante_simples,
+        "email": empresa.email or "",
+        "endereco": {
+            "logradouro": empresa.logradouro or "",
+            "numero": empresa.numero_endereco or "S/N",
+            "complemento": empresa.complemento or "",
+            "bairro": empresa.bairro or "",
+            "codigo_municipio": empresa.codigo_municipio or "",
+            "cidade": empresa.cidade or "",
+            "uf": empresa.uf or "",
+            "cep": (empresa.cep or "").replace("-", ""),
+        },
+    }
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(f"{base_url}/empresas", headers=headers, json=payload)
+        if resp.status_code in (400, 409) and "AlreadyExists" in resp.text:
+            resp = await client.put(f"{base_url}/empresas/{cnpj}", headers=headers, json=payload)
+        if resp.status_code in (200, 201):
+            return {"ok": True, "data": resp.json()}
+        return {"ok": False, "error": f"HTTP {resp.status_code}: {resp.text[:300]}"}
+
+
+async def configurar_nfse_por_cnpj(db: Session, empresa) -> dict:
+    """Configura NFS-e para empresa na Nuvem Fiscal."""
+    config = db.query(PrestadorConfig).first()
+    if not config:
+        return {"ok": False, "error": "Credenciais Nuvem Fiscal não configuradas."}
+
+    base_url, headers = await _authed_client(config)
+    cnpj = (empresa.cnpj or "").replace(".", "").replace("/", "").replace("-", "")
+    nuvem = _get_nuvem_config(config)
+    ambiente = "producao" if nuvem["ambiente"] == "producao" else "homologacao"
+    op_simp_nac = 3 if empresa.optante_simples else 1
+
+    payload = {
+        "ambiente": ambiente,
+        "regTrib": {"opSimpNac": op_simp_nac, "regEspTrib": empresa.regime_especial or 0},
+    }
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.put(f"{base_url}/empresas/{cnpj}/nfse", headers=headers, json=payload)
+        if resp.status_code in (200, 201):
+            return {"ok": True, "data": resp.json()}
+        return {"ok": False, "error": f"HTTP {resp.status_code}: {resp.text[:300]}"}
+
+
+async def upload_certificado_por_cnpj(db: Session, empresa, pfx_base64: str, senha: str) -> dict:
+    """Upload do certificado A1 para empresa na Nuvem Fiscal."""
+    config = db.query(PrestadorConfig).first()
+    if not config:
+        return {"ok": False, "error": "Credenciais Nuvem Fiscal não configuradas."}
+
+    base_url, headers = await _authed_client(config)
+    cnpj = (empresa.cnpj or "").replace(".", "").replace("/", "").replace("-", "")
+
+    payload = {"certificado": pfx_base64, "password": senha}
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.put(f"{base_url}/empresas/{cnpj}/certificado", headers=headers, json=payload)
+        if resp.status_code in (200, 201):
+            return {"ok": True, "data": resp.json()}
+        return {"ok": False, "error": f"HTTP {resp.status_code}: {resp.text[:300]}"}
+
+
+# ============================================
 # EMISSÃO NFS-e
 # ============================================
 
@@ -222,18 +305,25 @@ def _build_dps_payload(nfse: Nfse, config: PrestadorConfig, prestador_data: dict
     d_compet = competencia.isoformat() if isinstance(competencia, date) else str(competencia)[:10]
 
     valor = round(nfse.valor_servicos or 0, 2)
-    aliquota = round(nfse.aliquota_iss or config.aliquota_iss_padrao or 5.0, 4)
+    aliq_empresa = prestador_data.get("aliquota_iss", 0) if prestador_data else 0
+    aliquota = round(nfse.aliquota_iss or aliq_empresa or config.aliquota_iss_padrao or 5.0, 4)
     valor_iss = round(valor * (aliquota / 100), 2)
 
     # Código tributação nacional (cTribNac) — 6 dígitos (iiSSdd)
     c_trib_nac = (
         nfse.codigo_tributacao_municipio
+        or (prestador_data.get("codigo_tributacao", "") if prestador_data else "")
         or config.codigo_tributacao
         or "171901"  # contabilidade
     )
 
     # Código tributação municipal (cTribMun) — 3 dígitos (ex: "501" para Recife)
-    c_trib_mun = nfse.item_lista_servico or config.item_lista_servico or ""
+    c_trib_mun = (
+        nfse.item_lista_servico
+        or (prestador_data.get("item_lista_servico", "") if prestador_data else "")
+        or config.item_lista_servico
+        or ""
+    )
     if len(c_trib_mun) > 3:
         c_trib_mun = c_trib_mun[:3]
 

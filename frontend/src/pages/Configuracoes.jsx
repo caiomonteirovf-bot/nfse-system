@@ -1,54 +1,132 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import {
-  fetchPrestadorConfig, updatePrestadorConfig, uploadCertificado,
-  cadastrarEmpresaNuvem, configurarNfseNuvem, consultarCnpj,
+  fetchPrestadorConfig, updatePrestadorConfig,
+  fetchEmpresas, createEmpresa, updateEmpresa, deleteEmpresa, fetchEmpresaByCnpj,
+  cadastrarEmpresaNuvemPorId, configurarNfsePorId, uploadCertificadoPorId,
+  consultarCnpj,
 } from '../api'
 import { UF_OPTIONS } from '../lib/constants'
 
+const EMPTY_EMPRESA = {
+  cnpj: '', razaoSocial: '', nomeFantasia: '',
+  logradouro: '', numeroEndereco: '', complemento: '', bairro: '',
+  cidade: '', uf: '', cep: '', codigoMunicipio: '',
+  email: '', telefone: '', inscricaoMunicipal: '',
+  itemListaServico: '', codigoCnae: '', codigoTributacao: '',
+  aliquotaIssPadrao: 0, optanteSimples: false, regimeEspecial: 0, incentivoFiscal: false,
+  observacoes: '',
+}
+
 export default function Configuracoes({ onRefresh, clienteAtivo }) {
+  // Global OAuth (PrestadorConfig)
+  const [oauth, setOauth] = useState(null)
+  const [oauthLoading, setOauthLoading] = useState(true)
+  const [oauthSaving, setOauthSaving] = useState(false)
+  const [oauthMsg, setOauthMsg] = useState('')
+
+  // Empresas list
+  const [empresas, setEmpresas] = useState([])
+  const [empresasLoading, setEmpresasLoading] = useState(true)
+
+  // Selected empresa for editing
+  const [selectedId, setSelectedId] = useState(null)
   const [form, setForm] = useState(null)
-  const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
-  const [certSenha, setCertSenha] = useState('')
-  const [certMessage, setCertMessage] = useState('')
-  const [uploadingCert, setUploadingCert] = useState(false)
-  const [nuvemAction, setNuvemAction] = useState('')
-  const [nuvemMsg, setNuvemMsg] = useState('')
+
+  // New empresa
+  const [showNew, setShowNew] = useState(false)
+  const [newForm, setNewForm] = useState({ ...EMPTY_EMPRESA })
+  const [creating, setCreating] = useState(false)
+
+  // CNPJ lookup
   const [cnpjLoading, setCnpjLoading] = useState(false)
   const [cnpjMsg, setCnpjMsg] = useState('')
   const [sociosData, setSociosData] = useState(null)
 
+  // Cert upload
+  const [certSenha, setCertSenha] = useState('')
+  const [certMsg, setCertMsg] = useState('')
+  const [uploadingCert, setUploadingCert] = useState(false)
+
+  // Nuvem Fiscal actions
+  const [nuvemAction, setNuvemAction] = useState('')
+  const [nuvemMsg, setNuvemMsg] = useState('')
+
+  // Load OAuth config
   useEffect(() => {
     fetchPrestadorConfig()
-      .then(data => setForm(data))
+      .then(data => setOauth(data))
       .catch(e => console.error(e))
-      .finally(() => setLoading(false))
+      .finally(() => setOauthLoading(false))
   }, [])
 
-  // Quando clienteAtivo muda, pre-preenche campos do Gesthub
+  // Load empresas
+  const loadEmpresas = useCallback(async () => {
+    setEmpresasLoading(true)
+    try {
+      const data = await fetchEmpresas()
+      setEmpresas(data || [])
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setEmpresasLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { loadEmpresas() }, [loadEmpresas])
+
+  // When clienteAtivo changes, try to select matching empresa
   useEffect(() => {
-    if (!clienteAtivo || !form) return
-    setForm(f => ({
-      ...f,
-      cnpj: clienteAtivo.document || f.cnpj,
-      razaoSocial: clienteAtivo.legalName || f.razaoSocial,
-      nomeFantasia: clienteAtivo.tradeName || f.nomeFantasia,
-      cidade: (clienteAtivo.city && clienteAtivo.city !== '--') ? clienteAtivo.city : f.cidade,
-      uf: (clienteAtivo.state && clienteAtivo.state !== '--') ? clienteAtivo.state : f.uf,
-      email: clienteAtivo.email || f.email,
-      telefone: clienteAtivo.phone || f.telefone,
-    }))
-    setSociosData(null)
+    if (!clienteAtivo?.document || empresas.length === 0) return
+    const doc = clienteAtivo.document.replace(/\D/g, '')
+    const match = empresas.find(e => e.cnpj === doc)
+    if (match) {
+      setSelectedId(match.id)
+      setForm({ ...match })
+      setShowNew(false)
+    } else {
+      setSelectedId(null)
+      setForm(null)
+    }
+  }, [clienteAtivo?.document, empresas])
+
+  const selectEmpresa = (emp) => {
+    setSelectedId(emp.id)
+    setForm({ ...emp })
+    setShowNew(false)
     setCnpjMsg('')
-  }, [clienteAtivo?.id])
+    setSociosData(null)
+    setCertMsg('')
+    setNuvemMsg('')
+    setMessage('')
+  }
 
   const setField = (key, val) => setForm(f => ({ ...f, [key]: val }))
+  const setNewField = (key, val) => setNewForm(f => ({ ...f, [key]: val }))
 
-  const handleConsultarCnpj = async () => {
-    const cnpj = form?.cnpj
+  // ---- OAuth Save ----
+  const handleSaveOauth = async () => {
+    setOauthSaving(true)
+    setOauthMsg('')
+    try {
+      const updated = await updatePrestadorConfig(oauth)
+      setOauth(updated)
+      onRefresh?.()
+      setOauthMsg('Credenciais salvas!')
+      setTimeout(() => setOauthMsg(''), 3000)
+    } catch (e) {
+      setOauthMsg('Erro: ' + e.message)
+    } finally {
+      setOauthSaving(false)
+    }
+  }
+
+  // ---- Consultar CNPJ ----
+  const handleConsultarCnpj = async (targetForm, setTargetForm) => {
+    const cnpj = targetForm?.cnpj
     if (!cnpj || cnpj.replace(/\D/g, '').length !== 14) {
-      setCnpjMsg('Informe um CNPJ válido com 14 dígitos.')
+      setCnpjMsg('Informe um CNPJ valido com 14 digitos.')
       return
     }
     setCnpjLoading(true)
@@ -56,14 +134,13 @@ export default function Configuracoes({ onRefresh, clienteAtivo }) {
     setSociosData(null)
     try {
       const dados = await consultarCnpj(cnpj)
-      // Preenche todos os campos do form
-      setForm(f => ({
+      setTargetForm(f => ({
         ...f,
         cnpj: dados.cnpj || f.cnpj,
         razaoSocial: dados.razaoSocial || f.razaoSocial,
         nomeFantasia: dados.nomeFantasia || f.nomeFantasia,
         logradouro: dados.logradouro || f.logradouro,
-        numero: dados.numero || f.numero,
+        numeroEndereco: dados.numero || f.numeroEndereco,
         complemento: dados.complemento || f.complemento,
         bairro: dados.bairro || f.bairro,
         cidade: dados.cidade || f.cidade,
@@ -72,11 +149,9 @@ export default function Configuracoes({ onRefresh, clienteAtivo }) {
         codigoMunicipio: dados.codigoMunicipioIbge || dados.codigoMunicipio || f.codigoMunicipio,
         email: dados.email || f.email,
         telefone: dados.telefone || f.telefone,
-        codigoCnaePadrao: dados.cnaePrincipal || f.codigoCnaePadrao,
+        codigoCnae: dados.cnaePrincipal || f.codigoCnae,
       }))
-      if (dados.socios?.length) {
-        setSociosData(dados.socios)
-      }
+      if (dados.socios?.length) setSociosData(dados.socios)
       setCnpjMsg(`Dados carregados da Receita Federal. ${dados.situacao || ''}`)
     } catch (e) {
       setCnpjMsg('Erro: ' + e.message)
@@ -85,14 +160,39 @@ export default function Configuracoes({ onRefresh, clienteAtivo }) {
     }
   }
 
-  const handleSave = async () => {
+  // ---- Create Empresa ----
+  const handleCreateEmpresa = async () => {
+    if (!newForm.cnpj || newForm.cnpj.replace(/\D/g, '').length !== 14) {
+      return setMessage('CNPJ obrigatorio (14 digitos).')
+    }
+    setCreating(true)
+    setMessage('')
+    try {
+      const created = await createEmpresa(newForm)
+      await loadEmpresas()
+      selectEmpresa(created)
+      setNewForm({ ...EMPTY_EMPRESA })
+      setShowNew(false)
+      setMessage('Empresa criada com sucesso!')
+      setTimeout(() => setMessage(''), 3000)
+    } catch (e) {
+      setMessage('Erro: ' + e.message)
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  // ---- Update Empresa ----
+  const handleSaveEmpresa = async () => {
+    if (!selectedId || !form) return
     setSaving(true)
     setMessage('')
     try {
-      const updated = await updatePrestadorConfig(form)
+      const updated = await updateEmpresa(selectedId, form)
       setForm(updated)
+      await loadEmpresas()
       onRefresh?.()
-      setMessage('Configuracoes salvas com sucesso!')
+      setMessage('Configuracao salva!')
       setTimeout(() => setMessage(''), 3000)
     } catch (e) {
       setMessage('Erro: ' + e.message)
@@ -101,47 +201,284 @@ export default function Configuracoes({ onRefresh, clienteAtivo }) {
     }
   }
 
-  if (loading) return <p style={{ color: 'var(--text-muted)', padding: 24 }}>Carregando...</p>
-  if (!form) return <p style={{ color: 'var(--danger)', padding: 24 }}>Erro ao carregar configuracoes.</p>
+  // ---- Delete Empresa ----
+  const handleDeleteEmpresa = async () => {
+    if (!selectedId) return
+    if (!confirm('Excluir esta empresa? Acao irreversivel.')) return
+    try {
+      await deleteEmpresa(selectedId)
+      setSelectedId(null)
+      setForm(null)
+      await loadEmpresas()
+      setMessage('Empresa excluida.')
+    } catch (e) {
+      setMessage('Erro: ' + e.message)
+    }
+  }
+
+  // ---- Nuvem Fiscal actions ----
+  const handleCadastrar = async () => {
+    if (!selectedId) return
+    setNuvemAction('cadastrando')
+    setNuvemMsg('')
+    try {
+      const r = await cadastrarEmpresaNuvemPorId(selectedId)
+      setNuvemMsg(r.ok ? 'Empresa cadastrada na Nuvem Fiscal!' : 'Erro: ' + (r.error || 'Falha'))
+      if (r.ok) {
+        setForm(f => ({ ...f, nuvemFiscalCadastrada: true }))
+        await loadEmpresas()
+      }
+    } catch (e) { setNuvemMsg('Erro: ' + e.message) }
+    finally { setNuvemAction('') }
+  }
+
+  const handleConfigurarNfse = async () => {
+    if (!selectedId) return
+    setNuvemAction('configurando')
+    setNuvemMsg('')
+    try {
+      const r = await configurarNfsePorId(selectedId)
+      setNuvemMsg(r.ok ? 'NFS-e configurada!' : 'Erro: ' + (r.error || 'Falha'))
+      if (r.ok) {
+        setForm(f => ({ ...f, nuvemFiscalNfseConfig: true }))
+        await loadEmpresas()
+      }
+    } catch (e) { setNuvemMsg('Erro: ' + e.message) }
+    finally { setNuvemAction('') }
+  }
+
+  const handleUploadCert = async () => {
+    if (!selectedId) return
+    const b64 = window.__pfxBase64
+    if (!b64) return setCertMsg('Selecione um arquivo .pfx')
+    if (!certSenha) return setCertMsg('Informe a senha do certificado')
+    setUploadingCert(true)
+    setCertMsg('')
+    try {
+      const r = await uploadCertificadoPorId(selectedId, b64, certSenha)
+      if (r.ok) {
+        setCertMsg('Certificado enviado com sucesso!')
+        setForm(f => ({ ...f, nuvemFiscalCertificado: true, certificadoCarregado: true }))
+        await loadEmpresas()
+      } else {
+        setCertMsg('Erro: ' + (r.error || 'Falha'))
+      }
+    } catch (e) { setCertMsg('Erro: ' + e.message) }
+    finally { setUploadingCert(false) }
+  }
+
+  // ---- Status helpers ----
+  const statusBadge = (ok, labelOk, labelNo) => (
+    <span className={`badge badge--${ok ? 'success' : 'neutral'}`} style={{ fontSize: 10 }}>
+      {ok ? labelOk : labelNo}
+    </span>
+  )
+
+  const empresaStatus = (emp) => {
+    const steps = [
+      emp.nuvemFiscalCadastrada,
+      emp.nuvemFiscalNfseConfig,
+      emp.nuvemFiscalCertificado,
+    ]
+    const done = steps.filter(Boolean).length
+    return done === 3 ? 'success' : done > 0 ? 'warning' : 'neutral'
+  }
+
+  if (oauthLoading) return <p style={{ color: 'var(--text-muted)', padding: 24 }}>Carregando...</p>
 
   return (
     <>
       <div className="page-heading">
         <h1>Configuracoes</h1>
-        <p>Dados do prestador e configuracao ABRASF</p>
+        <p>Credenciais globais e configuracao por empresa</p>
       </div>
 
-      {/* Dados do Prestador */}
+      {/* ============================================ */}
+      {/* CREDENCIAIS GLOBAIS (Nuvem Fiscal OAuth)     */}
+      {/* ============================================ */}
       <div className="panel">
         <header className="panel__header">
-          <h3>Dados do Prestador</h3>
-          <button
-            className="btn btn--ghost"
-            disabled={cnpjLoading}
-            onClick={handleConsultarCnpj}
-            style={{ fontSize: 12, padding: '4px 12px' }}
-          >
-            {cnpjLoading ? 'Consultando...' : 'Consultar CNPJ na Receita'}
-          </button>
+          <h3>Nuvem Fiscal — Credenciais Globais</h3>
+          {oauth?.nuvemFiscalConfigurado
+            ? <span className="badge badge--success">Configurado</span>
+            : <span className="badge badge--neutral">Nao configurado</span>
+          }
         </header>
         <div className="panel__body module-content">
-          {cnpjMsg && (
-            <p style={{ marginBottom: 10, fontSize: 13, color: cnpjMsg.startsWith('Erro') ? 'var(--danger)' : 'var(--success)', fontWeight: 600 }}>
-              {cnpjMsg}
-            </p>
+          <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>
+            Credenciais OAuth2 da sua conta Nuvem Fiscal. Compartilhadas entre todas as empresas.
+          </p>
+          {oauth && (
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+                <label>Client ID *<input value={oauth.nuvemFiscalClientId || ''} onChange={e => setOauth(f => ({ ...f, nuvemFiscalClientId: e.target.value }))} /></label>
+                <label>Client Secret *<input type="password" value={oauth.nuvemFiscalClientSecret || ''} onChange={e => setOauth(f => ({ ...f, nuvemFiscalClientSecret: e.target.value }))} /></label>
+                <label>
+                  Ambiente
+                  <select value={oauth.nuvemFiscalAmbiente || 'homologacao'} onChange={e => setOauth(f => ({ ...f, nuvemFiscalAmbiente: e.target.value }))}>
+                    <option value="homologacao">Homologacao (Sandbox)</option>
+                    <option value="producao">Producao</option>
+                  </select>
+                </label>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 10 }}>
+                <button className="btn btn--solid" onClick={handleSaveOauth} disabled={oauthSaving}>
+                  {oauthSaving ? 'Salvando...' : 'Salvar Credenciais'}
+                </button>
+                {oauthMsg && (
+                  <span style={{ fontSize: 13, color: oauthMsg.startsWith('Erro') ? 'var(--danger)' : 'var(--success)', fontWeight: 600 }}>
+                    {oauthMsg}
+                  </span>
+                )}
+              </div>
+            </>
           )}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
-            <label>CNPJ *<input value={form.cnpj || ''} onChange={e => setField('cnpj', e.target.value)} /></label>
-            <label>Inscricao Municipal<input value={form.inscricaoMunicipal || ''} onChange={e => setField('inscricaoMunicipal', e.target.value)} /></label>
-            <label>Razao Social<input value={form.razaoSocial || ''} onChange={e => setField('razaoSocial', e.target.value)} /></label>
-            <label>Nome Fantasia<input value={form.nomeFantasia || ''} onChange={e => setField('nomeFantasia', e.target.value)} /></label>
-            <label>Email<input type="email" value={form.email || ''} onChange={e => setField('email', e.target.value)} /></label>
-            <label>Telefone<input value={form.telefone || ''} onChange={e => setField('telefone', e.target.value)} /></label>
-          </div>
         </div>
       </div>
 
-      {/* Sócios (se retornado da consulta CNPJ) */}
+      {/* ============================================ */}
+      {/* LISTA DE EMPRESAS                           */}
+      {/* ============================================ */}
+      <div className="panel">
+        <header className="panel__header">
+          <h3>Empresas Cadastradas</h3>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <span className="badge badge--neutral">{empresas.length} empresa(s)</span>
+            <button className="btn btn--solid" onClick={() => { setShowNew(true); setSelectedId(null); setForm(null); setCnpjMsg(''); setSociosData(null) }} style={{ fontSize: 12, padding: '4px 12px' }}>
+              + Nova Empresa
+            </button>
+          </div>
+        </header>
+        <div className="panel__body module-content">
+          {empresasLoading ? (
+            <p style={{ color: 'var(--text-muted)', fontSize: 13 }}>Carregando...</p>
+          ) : empresas.length === 0 ? (
+            <p style={{ color: 'var(--text-muted)', fontSize: 13 }}>Nenhuma empresa cadastrada. Adicione a primeira.</p>
+          ) : (
+            <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--border)', textAlign: 'left' }}>
+                  <th style={{ padding: '8px' }}>Empresa</th>
+                  <th style={{ padding: '8px' }}>CNPJ</th>
+                  <th style={{ padding: '8px' }}>Inscr. Municipal</th>
+                  <th style={{ padding: '8px', textAlign: 'center' }}>Cadastrada</th>
+                  <th style={{ padding: '8px', textAlign: 'center' }}>NFS-e Config</th>
+                  <th style={{ padding: '8px', textAlign: 'center' }}>Certificado</th>
+                  <th style={{ padding: '8px', textAlign: 'center' }}>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {empresas.map(emp => (
+                  <tr
+                    key={emp.id}
+                    onClick={() => selectEmpresa(emp)}
+                    style={{
+                      borderBottom: '1px solid var(--border)',
+                      cursor: 'pointer',
+                      background: selectedId === emp.id ? 'var(--surface-alt, rgba(99,102,241,.08))' : 'transparent',
+                      transition: 'background .15s',
+                    }}
+                    onMouseEnter={e => { if (selectedId !== emp.id) e.currentTarget.style.background = 'var(--surface-alt, rgba(0,0,0,.02))' }}
+                    onMouseLeave={e => { if (selectedId !== emp.id) e.currentTarget.style.background = 'transparent' }}
+                  >
+                    <td style={{ padding: '8px', fontWeight: 500 }}>{emp.razaoSocial || emp.nomeFantasia || '--'}</td>
+                    <td style={{ padding: '8px', fontFamily: 'monospace', fontSize: 12 }}>{emp.cnpj}</td>
+                    <td style={{ padding: '8px' }}>{emp.inscricaoMunicipal || '--'}</td>
+                    <td style={{ padding: '8px', textAlign: 'center' }}>{statusBadge(emp.nuvemFiscalCadastrada, 'Sim', 'Nao')}</td>
+                    <td style={{ padding: '8px', textAlign: 'center' }}>{statusBadge(emp.nuvemFiscalNfseConfig, 'Sim', 'Nao')}</td>
+                    <td style={{ padding: '8px', textAlign: 'center' }}>{statusBadge(emp.nuvemFiscalCertificado || emp.certificadoCarregado, 'Sim', 'Nao')}</td>
+                    <td style={{ padding: '8px', textAlign: 'center' }}>
+                      <span className={`badge badge--${empresaStatus(emp)}`} style={{ fontSize: 10 }}>
+                        {empresaStatus(emp) === 'success' ? 'Pronto' : empresaStatus(emp) === 'warning' ? 'Parcial' : 'Pendente'}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+
+      {/* ============================================ */}
+      {/* NOVA EMPRESA                                */}
+      {/* ============================================ */}
+      {showNew && (
+        <div className="panel" style={{ borderLeft: '3px solid var(--primary, #6366f1)' }}>
+          <header className="panel__header">
+            <h3>Nova Empresa</h3>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                className="btn btn--ghost"
+                disabled={cnpjLoading}
+                onClick={() => handleConsultarCnpj(newForm, setNewForm)}
+                style={{ fontSize: 12, padding: '4px 12px' }}
+              >
+                {cnpjLoading ? 'Consultando...' : 'Consultar CNPJ'}
+              </button>
+              <button className="btn btn--ghost" onClick={() => setShowNew(false)} style={{ fontSize: 12, padding: '4px 12px' }}>Cancelar</button>
+            </div>
+          </header>
+          <div className="panel__body module-content">
+            {cnpjMsg && (
+              <p style={{ marginBottom: 10, fontSize: 13, color: cnpjMsg.startsWith('Erro') ? 'var(--danger)' : 'var(--success)', fontWeight: 600 }}>{cnpjMsg}</p>
+            )}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+              <label>CNPJ *<input value={newForm.cnpj} onChange={e => setNewField('cnpj', e.target.value)} placeholder="00.000.000/0000-00" /></label>
+              <label>Razao Social<input value={newForm.razaoSocial} onChange={e => setNewField('razaoSocial', e.target.value)} /></label>
+              <label>Nome Fantasia<input value={newForm.nomeFantasia} onChange={e => setNewField('nomeFantasia', e.target.value)} /></label>
+              <label>Inscricao Municipal<input value={newForm.inscricaoMunicipal} onChange={e => setNewField('inscricaoMunicipal', e.target.value)} /></label>
+              <label>Email<input value={newForm.email} onChange={e => setNewField('email', e.target.value)} /></label>
+              <label>Telefone<input value={newForm.telefone} onChange={e => setNewField('telefone', e.target.value)} /></label>
+            </div>
+
+            <h4 style={{ margin: '14px 0 6px', fontSize: 12, textTransform: 'uppercase', color: 'var(--text-muted)', letterSpacing: '0.5px' }}>Endereco</h4>
+            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 10 }}>
+              <label>Logradouro<input value={newForm.logradouro} onChange={e => setNewField('logradouro', e.target.value)} /></label>
+              <label>Numero<input value={newForm.numeroEndereco} onChange={e => setNewField('numeroEndereco', e.target.value)} /></label>
+              <label>Complemento<input value={newForm.complemento} onChange={e => setNewField('complemento', e.target.value)} /></label>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginTop: 8 }}>
+              <label>Bairro<input value={newForm.bairro} onChange={e => setNewField('bairro', e.target.value)} /></label>
+              <label>Cidade<input value={newForm.cidade} onChange={e => setNewField('cidade', e.target.value)} /></label>
+              <label>
+                UF
+                <select value={newForm.uf} onChange={e => setNewField('uf', e.target.value)}>
+                  <option value="">--</option>
+                  {UF_OPTIONS.map(uf => <option key={uf} value={uf}>{uf}</option>)}
+                </select>
+              </label>
+              <label>CEP<input value={newForm.cep} onChange={e => setNewField('cep', e.target.value)} /></label>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginTop: 8 }}>
+              <label>Codigo Municipio (IBGE)<input value={newForm.codigoMunicipio} onChange={e => setNewField('codigoMunicipio', e.target.value)} /></label>
+            </div>
+
+            <h4 style={{ margin: '14px 0 6px', fontSize: 12, textTransform: 'uppercase', color: 'var(--text-muted)', letterSpacing: '0.5px' }}>Tributacao</h4>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+              <label>Item Lista Servico (cTribMun)<input value={newForm.itemListaServico} onChange={e => setNewField('itemListaServico', e.target.value)} placeholder="Ex: 901" /></label>
+              <label>Codigo CNAE<input value={newForm.codigoCnae} onChange={e => setNewField('codigoCnae', e.target.value)} /></label>
+              <label>Codigo Tributacao (cTribNac)<input value={newForm.codigoTributacao} onChange={e => setNewField('codigoTributacao', e.target.value)} /></label>
+              <label>Aliquota ISS Padrao (%)<input type="number" step="0.01" value={newForm.aliquotaIssPadrao} onChange={e => setNewField('aliquotaIssPadrao', e.target.value)} /></label>
+              <label style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 8, paddingTop: 18 }}>
+                <input type="checkbox" checked={newForm.optanteSimples} onChange={e => setNewField('optanteSimples', e.target.checked)} style={{ width: 16, height: 16 }} />
+                Optante Simples Nacional
+              </label>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 12 }}>
+              <button className="btn btn--solid" onClick={handleCreateEmpresa} disabled={creating}>
+                {creating ? 'Criando...' : 'Cadastrar Empresa'}
+              </button>
+              {message && (
+                <span style={{ fontSize: 13, color: message.startsWith('Erro') ? 'var(--danger)' : 'var(--success)', fontWeight: 600 }}>{message}</span>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Socios (se retornado da consulta CNPJ) */}
       {sociosData && sociosData.length > 0 && (
         <div className="panel">
           <header className="panel__header">
@@ -173,237 +510,245 @@ export default function Configuracoes({ onRefresh, clienteAtivo }) {
         </div>
       )}
 
-      {/* Endereco */}
-      <div className="panel">
-        <header className="panel__header"><h3>Endereco</h3></header>
-        <div className="panel__body module-content">
-          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 10 }}>
-            <label>Logradouro<input value={form.logradouro || ''} onChange={e => setField('logradouro', e.target.value)} /></label>
-            <label>Numero<input value={form.numero || ''} onChange={e => setField('numero', e.target.value)} /></label>
-            <label>Complemento<input value={form.complemento || ''} onChange={e => setField('complemento', e.target.value)} /></label>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginTop: 10 }}>
-            <label>Bairro<input value={form.bairro || ''} onChange={e => setField('bairro', e.target.value)} /></label>
-            <label>Cidade<input value={form.cidade || ''} onChange={e => setField('cidade', e.target.value)} /></label>
-            <label>
-              UF
-              <select value={form.uf || ''} onChange={e => setField('uf', e.target.value)}>
-                <option value="">--</option>
-                {UF_OPTIONS.map(uf => <option key={uf} value={uf}>{uf}</option>)}
-              </select>
-            </label>
-            <label>CEP<input value={form.cep || ''} onChange={e => setField('cep', e.target.value)} /></label>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginTop: 10 }}>
-            <label>Codigo Municipio (IBGE)<input value={form.codigoMunicipio || ''} onChange={e => setField('codigoMunicipio', e.target.value)} /></label>
-          </div>
-        </div>
-      </div>
+      {/* ============================================ */}
+      {/* DETALHES DA EMPRESA SELECIONADA              */}
+      {/* ============================================ */}
+      {selectedId && form && (
+        <>
+          {/* Dados da Empresa */}
+          <div className="panel" style={{ borderLeft: '3px solid var(--primary, #6366f1)' }}>
+            <header className="panel__header">
+              <h3>{form.razaoSocial || form.nomeFantasia || 'Empresa'}</h3>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  className="btn btn--ghost"
+                  disabled={cnpjLoading}
+                  onClick={() => handleConsultarCnpj(form, setForm)}
+                  style={{ fontSize: 12, padding: '4px 12px' }}
+                >
+                  {cnpjLoading ? 'Consultando...' : 'Consultar CNPJ'}
+                </button>
+                <button
+                  className="btn btn--ghost"
+                  onClick={handleDeleteEmpresa}
+                  style={{ fontSize: 12, padding: '4px 12px', color: 'var(--danger)' }}
+                >
+                  Excluir
+                </button>
+              </div>
+            </header>
+            <div className="panel__body module-content">
+              {cnpjMsg && (
+                <p style={{ marginBottom: 10, fontSize: 13, color: cnpjMsg.startsWith('Erro') ? 'var(--danger)' : 'var(--success)', fontWeight: 600 }}>{cnpjMsg}</p>
+              )}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+                <label>CNPJ<input value={form.cnpj || ''} disabled style={{ opacity: 0.6 }} /></label>
+                <label>Razao Social<input value={form.razaoSocial || ''} onChange={e => setField('razaoSocial', e.target.value)} /></label>
+                <label>Nome Fantasia<input value={form.nomeFantasia || ''} onChange={e => setField('nomeFantasia', e.target.value)} /></label>
+                <label>Inscricao Municipal *<input value={form.inscricaoMunicipal || ''} onChange={e => setField('inscricaoMunicipal', e.target.value)} /></label>
+                <label>Email<input value={form.email || ''} onChange={e => setField('email', e.target.value)} /></label>
+                <label>Telefone<input value={form.telefone || ''} onChange={e => setField('telefone', e.target.value)} /></label>
+              </div>
 
-      {/* Certificado Digital A1 */}
-      <div className="panel">
-        <header className="panel__header"><h3>Certificado Digital A1</h3></header>
-        <div className="panel__body module-content">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 12 }}>
-            <span style={{ fontSize: 13 }}>Status:</span>
-            {form.certificadoStatus ? (
-              <span className={`badge badge--${form.certificadoStatus === 'NO_PRAZO' ? 'success' : form.certificadoStatus === 'A_VENCER' ? 'warning' : 'danger'}`}>
-                {form.certificadoStatus === 'NO_PRAZO' ? 'Valido' : form.certificadoStatus === 'A_VENCER' ? 'A Vencer' : 'Vencido'}
-              </span>
-            ) : (
-              <span className="badge badge--neutral">{form.certificadoCarregado ? 'Carregado' : 'Nao configurado'}</span>
-            )}
-            {form.certificadoCnpj && <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>CNPJ: {form.certificadoCnpj}</span>}
-            {form.certificadoValidade && <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>Validade: {new Date(form.certificadoValidade).toLocaleDateString('pt-BR')}</span>}
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 10, alignItems: 'end' }}>
-            <label>
-              Arquivo .pfx
-              <input
-                type="file"
-                accept=".pfx,.p12"
-                onChange={e => {
-                  const file = e.target.files?.[0]
-                  if (file) {
-                    const reader = new FileReader()
-                    reader.onload = () => {
-                      const b64 = reader.result.split(',')[1]
-                      window.__pfxBase64 = b64
-                    }
-                    reader.readAsDataURL(file)
-                  }
-                }}
+              <h4 style={{ margin: '14px 0 6px', fontSize: 12, textTransform: 'uppercase', color: 'var(--text-muted)', letterSpacing: '0.5px' }}>Endereco</h4>
+              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 10 }}>
+                <label>Logradouro<input value={form.logradouro || ''} onChange={e => setField('logradouro', e.target.value)} /></label>
+                <label>Numero<input value={form.numeroEndereco || ''} onChange={e => setField('numeroEndereco', e.target.value)} /></label>
+                <label>Complemento<input value={form.complemento || ''} onChange={e => setField('complemento', e.target.value)} /></label>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginTop: 8 }}>
+                <label>Bairro<input value={form.bairro || ''} onChange={e => setField('bairro', e.target.value)} /></label>
+                <label>Cidade<input value={form.cidade || ''} onChange={e => setField('cidade', e.target.value)} /></label>
+                <label>
+                  UF
+                  <select value={form.uf || ''} onChange={e => setField('uf', e.target.value)}>
+                    <option value="">--</option>
+                    {UF_OPTIONS.map(uf => <option key={uf} value={uf}>{uf}</option>)}
+                  </select>
+                </label>
+                <label>CEP<input value={form.cep || ''} onChange={e => setField('cep', e.target.value)} /></label>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginTop: 8 }}>
+                <label>Codigo Municipio (IBGE)<input value={form.codigoMunicipio || ''} onChange={e => setField('codigoMunicipio', e.target.value)} /></label>
+              </div>
+
+              <h4 style={{ margin: '14px 0 6px', fontSize: 12, textTransform: 'uppercase', color: 'var(--text-muted)', letterSpacing: '0.5px' }}>Tributacao</h4>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+                <label>Item Lista Servico (cTribMun)<input value={form.itemListaServico || ''} onChange={e => setField('itemListaServico', e.target.value)} placeholder="Ex: 901" /></label>
+                <label>Codigo CNAE<input value={form.codigoCnae || ''} onChange={e => setField('codigoCnae', e.target.value)} /></label>
+                <label>Codigo Tributacao (cTribNac)<input value={form.codigoTributacao || ''} onChange={e => setField('codigoTributacao', e.target.value)} /></label>
+                <label>Aliquota ISS Padrao (%)<input type="number" step="0.01" value={form.aliquotaIssPadrao || 0} onChange={e => setField('aliquotaIssPadrao', e.target.value)} /></label>
+                <label style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 8, paddingTop: 18 }}>
+                  <input type="checkbox" checked={form.optanteSimples || false} onChange={e => setField('optanteSimples', e.target.checked)} style={{ width: 16, height: 16 }} />
+                  Optante Simples Nacional
+                </label>
+                <label style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 8, paddingTop: 18 }}>
+                  <input type="checkbox" checked={form.incentivoFiscal || false} onChange={e => setField('incentivoFiscal', e.target.checked)} style={{ width: 16, height: 16 }} />
+                  Incentivo Fiscal
+                </label>
+              </div>
+
+              <h4 style={{ margin: '14px 0 6px', fontSize: 12, textTransform: 'uppercase', color: 'var(--text-muted)', letterSpacing: '0.5px' }}>Numeracao RPS</h4>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+                <label>Serie RPS<input value={form.serieRps || '1'} onChange={e => setField('serieRps', e.target.value)} /></label>
+                <label>Ultimo RPS<input type="number" value={form.ultimoRps || 0} onChange={e => setField('ultimoRps', e.target.value)} /></label>
+              </div>
+
+              <h4 style={{ margin: '14px 0 6px', fontSize: 12, textTransform: 'uppercase', color: 'var(--text-muted)', letterSpacing: '0.5px' }}>Observacoes</h4>
+              <textarea
+                value={form.observacoes || ''}
+                onChange={e => setField('observacoes', e.target.value)}
+                rows={2}
+                style={{ width: '100%', resize: 'vertical', fontFamily: 'inherit', fontSize: 13 }}
+                placeholder="Notas internas sobre esta empresa..."
               />
-            </label>
-            <label>
-              Senha
-              <input type="password" value={certSenha} onChange={e => setCertSenha(e.target.value)} placeholder="Senha do certificado" />
-            </label>
-            <button
-              className="btn btn--solid"
-              disabled={uploadingCert}
-              onClick={async () => {
-                const b64 = window.__pfxBase64
-                if (!b64) return setCertMessage('Selecione um arquivo .pfx')
-                setUploadingCert(true)
-                setCertMessage('')
-                try {
-                  const result = await uploadCertificado(b64, certSenha)
-                  if (result.ok) {
-                    setCertMessage(`Certificado carregado! CNPJ: ${result.data?.cnpj || ''} - Validade: ${result.data?.validade || ''}`)
-                    const updated = await fetchPrestadorConfig()
-                    setForm(updated)
-                  } else {
-                    setCertMessage('Erro: ' + (result.error || 'Falha no upload'))
-                  }
-                } catch (e) {
-                  setCertMessage('Erro: ' + e.message)
-                } finally {
-                  setUploadingCert(false)
-                }
-              }}
-            >
-              {uploadingCert ? 'Enviando...' : 'Enviar Certificado'}
-            </button>
-          </div>
-          {certMessage && (
-            <p style={{ marginTop: 8, fontSize: 13, color: certMessage.startsWith('Erro') ? 'var(--danger)' : 'var(--success)', fontWeight: 600 }}>
-              {certMessage}
-            </p>
-          )}
-        </div>
-      </div>
 
-      {/* Nuvem Fiscal */}
-      <div className="panel">
-        <header className="panel__header">
-          <h3>Nuvem Fiscal API</h3>
-          {form.nuvemFiscalConfigurado
-            ? <span className="badge badge--success">Configurado</span>
-            : <span className="badge badge--neutral">Nao configurado</span>
-          }
-        </header>
-        <div className="panel__body module-content">
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
-            <label>Client ID *<input value={form.nuvemFiscalClientId || ''} onChange={e => setField('nuvemFiscalClientId', e.target.value)} placeholder="Ex: QwqDuz7RmpzWGmZKv6Wo" /></label>
-            <label>Client Secret *<input type="password" value={form.nuvemFiscalClientSecret || ''} onChange={e => setField('nuvemFiscalClientSecret', e.target.value)} placeholder="Secret" /></label>
-            <label>
-              Ambiente
-              <select value={form.nuvemFiscalAmbiente || 'homologacao'} onChange={e => setField('nuvemFiscalAmbiente', e.target.value)}>
-                <option value="homologacao">Homologacao (Sandbox)</option>
-                <option value="producao">Producao</option>
-              </select>
-            </label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 12 }}>
+                <button className="btn btn--solid" onClick={handleSaveEmpresa} disabled={saving}>
+                  {saving ? 'Salvando...' : 'Salvar Configuracao'}
+                </button>
+                {message && (
+                  <span style={{ fontSize: 13, color: message.startsWith('Erro') ? 'var(--danger)' : 'var(--success)', fontWeight: 600 }}>{message}</span>
+                )}
+              </div>
+            </div>
           </div>
-          <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-            <button
-              className="btn btn--ghost"
-              disabled={!!nuvemAction || !form.nuvemFiscalClientId}
-              onClick={async () => {
-                setNuvemAction('cadastrando')
-                setNuvemMsg('')
-                try {
-                  const r = await cadastrarEmpresaNuvem()
-                  setNuvemMsg(r.ok ? 'Empresa cadastrada na Nuvem Fiscal!' : 'Erro: ' + (r.error || 'Falha'))
-                } catch (e) { setNuvemMsg('Erro: ' + e.message) }
-                finally { setNuvemAction('') }
-              }}
-            >{nuvemAction === 'cadastrando' ? 'Cadastrando...' : 'Cadastrar Empresa'}</button>
-            <button
-              className="btn btn--ghost"
-              disabled={!!nuvemAction || !form.nuvemFiscalClientId}
-              onClick={async () => {
-                setNuvemAction('configurando')
-                setNuvemMsg('')
-                try {
-                  const r = await configurarNfseNuvem()
-                  setNuvemMsg(r.ok ? 'NFS-e configurada!' : 'Erro: ' + (r.error || 'Falha'))
-                } catch (e) { setNuvemMsg('Erro: ' + e.message) }
-                finally { setNuvemAction('') }
-              }}
-            >{nuvemAction === 'configurando' ? 'Configurando...' : 'Configurar NFS-e'}</button>
-          </div>
-          {nuvemMsg && (
-            <p style={{ marginTop: 8, fontSize: 13, color: nuvemMsg.startsWith('Erro') ? 'var(--danger)' : 'var(--success)', fontWeight: 600 }}>
-              {nuvemMsg}
-            </p>
-          )}
-        </div>
-      </div>
 
-      {/* NFS-e Nacional */}
-      <div className="panel">
-        <header className="panel__header"><h3>NFS-e Nacional (API direta)</h3></header>
-        <div className="panel__body module-content">
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <label>URL SEFIN<input value={form.nfseNacionalUrl || ''} onChange={e => setField('nfseNacionalUrl', e.target.value)} placeholder="https://sefin.nfse.gov.br/SefinNacional" /></label>
-            <label>URL ADN<input value={form.adnUrl || ''} onChange={e => setField('adnUrl', e.target.value)} placeholder="https://adn.nfse.gov.br" /></label>
+          {/* Certificado Digital */}
+          <div className="panel">
+            <header className="panel__header">
+              <h3>Certificado Digital A1</h3>
+              {form.certificadoCarregado || form.nuvemFiscalCertificado
+                ? <span className="badge badge--success">Enviado</span>
+                : <span className="badge badge--neutral">Pendente</span>
+              }
+            </header>
+            <div className="panel__body module-content">
+              {form.certificadoCnpj && (
+                <div style={{ display: 'flex', gap: 16, marginBottom: 10, fontSize: 13 }}>
+                  <span>CNPJ certificado: <strong>{form.certificadoCnpj}</strong></span>
+                  {form.certificadoValidade && <span>Validade: <strong>{new Date(form.certificadoValidade).toLocaleDateString('pt-BR')}</strong></span>}
+                  {form.certificadoStatus && (
+                    <span className={`badge badge--${form.certificadoStatus === 'NO_PRAZO' ? 'success' : form.certificadoStatus === 'A_VENCER' ? 'warning' : 'danger'}`}>
+                      {form.certificadoStatus === 'NO_PRAZO' ? 'Valido' : form.certificadoStatus === 'A_VENCER' ? 'A Vencer' : 'Vencido'}
+                    </span>
+                  )}
+                </div>
+              )}
+              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 10, alignItems: 'end' }}>
+                <label>
+                  Arquivo .pfx
+                  <input
+                    type="file"
+                    accept=".pfx,.p12"
+                    onChange={e => {
+                      const file = e.target.files?.[0]
+                      if (file) {
+                        const reader = new FileReader()
+                        reader.onload = () => { window.__pfxBase64 = reader.result.split(',')[1] }
+                        reader.readAsDataURL(file)
+                      }
+                    }}
+                  />
+                </label>
+                <label>
+                  Senha
+                  <input type="password" value={certSenha} onChange={e => setCertSenha(e.target.value)} placeholder="Senha do certificado" />
+                </label>
+                <button className="btn btn--solid" disabled={uploadingCert} onClick={handleUploadCert}>
+                  {uploadingCert ? 'Enviando...' : 'Enviar Certificado'}
+                </button>
+              </div>
+              {certMsg && (
+                <p style={{ marginTop: 8, fontSize: 13, color: certMsg.startsWith('Erro') ? 'var(--danger)' : 'var(--success)', fontWeight: 600 }}>{certMsg}</p>
+              )}
+            </div>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginTop: 10 }}>
-            <label>Ultimo NSU<input type="number" value={form.ultimoNsu || 0} onChange={e => setField('ultimoNsu', e.target.value)} /></label>
-          </div>
-        </div>
-      </div>
 
-      {/* ABRASF Config */}
-      <div className="panel">
-        <header className="panel__header"><h3>Configuracao ABRASF</h3></header>
-        <div className="panel__body module-content">
-          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 10 }}>
-            <label>URL Webservice<input value={form.webserviceUrl || ''} onChange={e => setField('webserviceUrl', e.target.value)} placeholder="https://nfse.prefeitura.gov.br/webservice" /></label>
-            <label>
-              Ambiente
-              <select value={form.ambiente || 'HOMOLOGACAO'} onChange={e => setField('ambiente', e.target.value)}>
-                <option value="HOMOLOGACAO">Homologacao</option>
-                <option value="PRODUCAO">Producao</option>
-              </select>
-            </label>
+          {/* Nuvem Fiscal - Acoes */}
+          <div className="panel">
+            <header className="panel__header">
+              <h3>Nuvem Fiscal — Configuracao</h3>
+              <div style={{ display: 'flex', gap: 6 }}>
+                {statusBadge(form.nuvemFiscalCadastrada, 'Cadastrada', 'Nao cadastrada')}
+                {statusBadge(form.nuvemFiscalNfseConfig, 'NFS-e OK', 'NFS-e pendente')}
+                {statusBadge(form.nuvemFiscalCertificado, 'Cert OK', 'Cert pendente')}
+              </div>
+            </header>
+            <div className="panel__body module-content">
+              <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>
+                Execute os passos abaixo para habilitar a emissao de NFS-e para esta empresa.
+              </p>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  className={`btn ${form.nuvemFiscalCadastrada ? 'btn--ghost' : 'btn--solid'}`}
+                  disabled={!!nuvemAction || !oauth?.nuvemFiscalClientId}
+                  onClick={handleCadastrar}
+                  style={{ flex: 1, textAlign: 'center', padding: '10px 12px' }}
+                >
+                  <div style={{ fontWeight: 600 }}>{nuvemAction === 'cadastrando' ? 'Cadastrando...' : '1. Cadastrar Empresa'}</div>
+                  <small style={{ opacity: 0.7 }}>Registra na API Nuvem Fiscal</small>
+                </button>
+                <button
+                  className={`btn ${form.nuvemFiscalNfseConfig ? 'btn--ghost' : 'btn--solid'}`}
+                  disabled={!!nuvemAction || !form.nuvemFiscalCadastrada}
+                  onClick={handleConfigurarNfse}
+                  style={{ flex: 1, textAlign: 'center', padding: '10px 12px' }}
+                >
+                  <div style={{ fontWeight: 600 }}>{nuvemAction === 'configurando' ? 'Configurando...' : '2. Configurar NFS-e'}</div>
+                  <small style={{ opacity: 0.7 }}>Habilita emissao de notas</small>
+                </button>
+                <button
+                  className={`btn ${form.nuvemFiscalCertificado ? 'btn--ghost' : 'btn--solid'}`}
+                  disabled
+                  style={{ flex: 1, textAlign: 'center', padding: '10px 12px', opacity: 0.7 }}
+                >
+                  <div style={{ fontWeight: 600 }}>3. Certificado A1</div>
+                  <small style={{ opacity: 0.7 }}>Use o painel acima</small>
+                </button>
+              </div>
+              {!oauth?.nuvemFiscalClientId && (
+                <p style={{ marginTop: 8, fontSize: 12, color: 'var(--danger)' }}>
+                  Configure as credenciais OAuth globais acima primeiro.
+                </p>
+              )}
+              {nuvemMsg && (
+                <p style={{ marginTop: 8, fontSize: 13, color: nuvemMsg.startsWith('Erro') ? 'var(--danger)' : 'var(--success)', fontWeight: 600 }}>{nuvemMsg}</p>
+              )}
+            </div>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10, marginTop: 10 }}>
-            <label>Caminho Certificado Digital<input value={form.certificadoPath || ''} onChange={e => setField('certificadoPath', e.target.value)} placeholder="/caminho/certificado.pfx" /></label>
-            <label>Senha Certificado<input type="password" value={form.certificadoSenha || ''} onChange={e => setField('certificadoSenha', e.target.value)} /></label>
-          </div>
-        </div>
-      </div>
+        </>
+      )}
 
-      {/* Defaults Servico */}
-      <div className="panel">
-        <header className="panel__header"><h3>Defaults de Servico</h3></header>
-        <div className="panel__body module-content">
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
-            <label>Item Lista Servico<input value={form.itemListaServicoPadrao || ''} onChange={e => setField('itemListaServicoPadrao', e.target.value)} placeholder="01.01" /></label>
-            <label>Codigo CNAE<input value={form.codigoCnaePadrao || ''} onChange={e => setField('codigoCnaePadrao', e.target.value)} /></label>
-            <label>Aliquota ISS Padrao (%)<input type="number" step="0.01" value={form.aliquotaIssPadrao || ''} onChange={e => setField('aliquotaIssPadrao', e.target.value)} /></label>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginTop: 10 }}>
-            <label>
-              Natureza Operacao
-              <select value={form.naturezaOperacao || '1'} onChange={e => setField('naturezaOperacao', e.target.value)}>
-                <option value="1">1 - Tributacao no municipio</option>
-                <option value="2">2 - Tributacao fora do municipio</option>
-                <option value="3">3 - Isencao</option>
-                <option value="4">4 - Imune</option>
-                <option value="5">5 - Exigibilidade suspensa por decisao judicial</option>
-                <option value="6">6 - Exigibilidade suspensa por procedimento adm</option>
-              </select>
-            </label>
-            <label>Serie RPS<input value={form.serieRps || '1'} onChange={e => setField('serieRps', e.target.value)} /></label>
-            <label>Ultimo Numero RPS<input type="number" value={form.ultimoRps || '0'} onChange={e => setField('ultimoRps', e.target.value)} /></label>
+      {/* Empty state when no empresa selected and not creating */}
+      {!selectedId && !showNew && empresas.length > 0 && (
+        <div className="panel">
+          <div className="panel__body" style={{ textAlign: 'center', padding: '32px 24px', color: 'var(--text-muted)' }}>
+            <p style={{ fontSize: 14 }}>Selecione uma empresa na tabela acima para editar suas configuracoes.</p>
+            {clienteAtivo && (
+              <p style={{ fontSize: 13, marginTop: 8, color: 'var(--warning, #f59e0b)' }}>
+                O cliente <strong>{clienteAtivo.legalName}</strong> ({clienteAtivo.document}) nao possui empresa cadastrada.
+                <br />
+                <button className="btn btn--solid" onClick={() => {
+                  setShowNew(true)
+                  setNewForm(f => ({
+                    ...f,
+                    cnpj: clienteAtivo.document || '',
+                    razaoSocial: clienteAtivo.legalName || '',
+                    nomeFantasia: clienteAtivo.tradeName || '',
+                    cidade: clienteAtivo.city || '',
+                    uf: clienteAtivo.state || '',
+                    email: clienteAtivo.email || '',
+                    telefone: clienteAtivo.phone || '',
+                  }))
+                }} style={{ marginTop: 8 }}>
+                  Cadastrar {clienteAtivo.tradeName || clienteAtivo.legalName?.split(' ')[0]}
+                </button>
+              </p>
+            )}
           </div>
         </div>
-      </div>
-
-      {/* Save */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 4 }}>
-        <button className="btn btn--solid" onClick={handleSave} disabled={saving}>
-          {saving ? 'Salvando...' : 'Salvar Configuracoes'}
-        </button>
-        {message && (
-          <span style={{ fontSize: 13, color: message.startsWith('Erro') ? 'var(--danger)' : 'var(--success)', fontWeight: 600 }}>
-            {message}
-          </span>
-        )}
-      </div>
+      )}
     </>
   )
 }
