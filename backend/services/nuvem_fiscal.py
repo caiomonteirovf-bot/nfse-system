@@ -455,6 +455,26 @@ async def emitir_nfse(db: Session, nfse_ids: list[int], prestador_data: dict | N
                             else config.razao_social or ""
                         )
                     _ensure_tomador(db, nfse)
+
+                    # Consultar status para pegar número real da prefeitura
+                    nuvem_id = data.get("id", "")
+                    if nuvem_id and (not nfse.numero or nfse.numero == str(num_real)):
+                        try:
+                            status_resp = await client.get(
+                                f"{base_url}/nfse/{nuvem_id}",
+                                headers=headers,
+                            )
+                            if status_resp.status_code == 200:
+                                status_data = status_resp.json()
+                                if status_data.get("numero"):
+                                    nfse.numero = str(status_data["numero"])
+                                if status_data.get("chave_acesso"):
+                                    nfse.chave_acesso = status_data["chave_acesso"]
+                                if status_data.get("codigo_verificacao"):
+                                    nfse.codigo_verificacao = status_data["codigo_verificacao"]
+                        except Exception:
+                            pass  # Não falha a emissão se consulta não funcionar
+
                     db.commit()
 
                     resultados.append({
