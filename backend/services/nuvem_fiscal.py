@@ -426,11 +426,34 @@ async def emitir_nfse(db: Session, nfse_ids: list[int], prestador_data: dict | N
                     # Nuvem Fiscal retorna id do documento
                     nfse.protocolo = data.get("id", "")
                     nfse.chave_acesso = data.get("chave_acesso", data.get("id", ""))
-                    nfse.numero = str(data.get("numero", nfse.numero))
-                    nfse.codigo_verificacao = data.get("codigo_verificacao", "")
+                    # Número real da NFS-e (pode vir em vários campos)
+                    num_real = (
+                        data.get("numero_nfse")
+                        or data.get("numero")
+                        or (data.get("nfse", {}) or {}).get("numero")
+                        or nfse.numero
+                    )
+                    nfse.numero = str(num_real)
+                    nfse.codigo_verificacao = (
+                        data.get("codigo_verificacao")
+                        or (data.get("nfse", {}) or {}).get("codigo_verificacao")
+                        or ""
+                    )
                     nfse.data_emissao = date.today()
                     if data.get("valor_iss"):
                         nfse.valor_iss = float(data["valor_iss"])
+                    # Gravar CNPJ do prestador na NFS-e
+                    cnpj_prest = (
+                        prestador_data.get("cnpj", "") if prestador_data
+                        else (config.cnpj or "").replace(".", "").replace("/", "").replace("-", "")
+                    )
+                    if cnpj_prest and not nfse.prestador_cnpj:
+                        nfse.prestador_cnpj = cnpj_prest
+                    if not nfse.prestador_razao_social:
+                        nfse.prestador_razao_social = (
+                            prestador_data.get("razao_social", "") if prestador_data
+                            else config.razao_social or ""
+                        )
                     _ensure_tomador(db, nfse)
                     db.commit()
 
