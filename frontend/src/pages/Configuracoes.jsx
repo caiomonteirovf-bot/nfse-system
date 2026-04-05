@@ -76,19 +76,66 @@ export default function Configuracoes({ onRefresh, clienteAtivo }) {
 
   useEffect(() => { loadEmpresas() }, [loadEmpresas])
 
-  // When clienteAtivo changes, try to select matching empresa
+  // When clienteAtivo changes, select matching empresa or auto-open new form with Gesthub data
   useEffect(() => {
-    if (!clienteAtivo?.document || empresas.length === 0) return
+    if (!clienteAtivo?.document) return
     const doc = clienteAtivo.document.replace(/\D/g, '')
-    const match = empresas.find(e => e.cnpj === doc)
-    if (match) {
-      setSelectedId(match.id)
-      setForm({ ...match })
-      setShowNew(false)
-    } else {
-      setSelectedId(null)
-      setForm(null)
+
+    if (empresas.length > 0) {
+      const match = empresas.find(e => e.cnpj === doc)
+      if (match) {
+        setSelectedId(match.id)
+        setForm({ ...match })
+        setShowNew(false)
+        return
+      }
     }
+
+    // Empresa nao cadastrada — auto-preencher form de nova empresa com dados do Gesthub
+    setSelectedId(null)
+    setForm(null)
+
+    // Buscar dados completos do Gesthub para pre-preencher
+    fetchClienteByCnpj(clienteAtivo.document)
+      .then(data => {
+        if (!data) return
+        setNewForm({
+          ...EMPTY_EMPRESA,
+          cnpj: (data.document || '').replace(/\D/g, ''),
+          razaoSocial: data.legalName || '',
+          nomeFantasia: data.tradeName || '',
+          logradouro: data.logradouro || '',
+          numeroEndereco: data.numeroEndereco || '',
+          complemento: data.complemento || '',
+          bairro: data.bairro || '',
+          cidade: data.city || '',
+          uf: data.state || '',
+          cep: data.cep || '',
+          codigoMunicipio: data.codigoMunicipioIbge || '',
+          email: data.email || '',
+          telefone: data.phone || '',
+          inscricaoMunicipal: data.inscricaoMunicipal || '',
+          codigoCnae: data.cnaePrincipal || '',
+          gesthubClientId: data.id || null,
+          optanteSimples: (data.taxRegime || '').toUpperCase().includes('SIMPLES') || false,
+        })
+        setShowNew(true)
+        setCnpjMsg(`Dados pre-preenchidos do Gesthub: ${data.legalName || ''}`)
+      })
+      .catch(() => {
+        // Gesthub indisponivel — abre form vazio com dados basicos do seletor
+        setNewForm({
+          ...EMPTY_EMPRESA,
+          cnpj: doc,
+          razaoSocial: clienteAtivo.legalName || '',
+          nomeFantasia: clienteAtivo.tradeName || '',
+          cidade: clienteAtivo.city || '',
+          uf: clienteAtivo.state || '',
+          email: clienteAtivo.email || '',
+          telefone: clienteAtivo.phone || '',
+        })
+        setShowNew(true)
+      })
   }, [clienteAtivo?.document, empresas])
 
   const selectEmpresa = (emp) => {
