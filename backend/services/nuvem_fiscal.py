@@ -245,11 +245,38 @@ def _build_dps_payload(nfse: Nfse, config: PrestadorConfig, prestador_data: dict
         "xNome": nfse.tomador_razao_social or "",
     }
 
-    if nfse.tomador and getattr(nfse.tomador, "logradouro", None):
-        t = nfse.tomador
+    # Dados do tomador vinculado (endereço, email, telefone)
+    t = nfse.tomador
+    if t:
+        if getattr(t, "email", ""):
+            toma["email"] = t.email
+        if getattr(t, "telefone", ""):
+            toma["fone"] = t.telefone
+
+        # Endereço nacional
+        logradouro = getattr(t, "logradouro", "") or ""
         cod_mun = getattr(t, "codigo_municipio", "") or ""
-        if cod_mun:
-            toma["end"] = {"endNac": {"cMun": cod_mun}}
+        if logradouro or cod_mun:
+            end_nac = {}
+            if cod_mun:
+                end_nac["cMun"] = cod_mun
+            if getattr(t, "cep", ""):
+                end_nac["CEP"] = t.cep.replace("-", "")
+            end = {"endNac": end_nac} if end_nac else {}
+            if logradouro:
+                end["xLgr"] = logradouro
+            if getattr(t, "numero_endereco", ""):
+                end["nro"] = t.numero_endereco
+            if getattr(t, "complemento", ""):
+                end["xCpl"] = t.complemento
+            if getattr(t, "bairro", ""):
+                end["xBairro"] = t.bairro
+            if end:
+                toma["end"] = end
+    else:
+        # Sem tomador vinculado — usa email da NFS-e se disponível
+        if nfse.tomador_email:
+            toma["email"] = nfse.tomador_email
 
     # --- Tributos (diferente para Simples Nacional vs Regime Normal) ---
     if is_simples:
