@@ -228,8 +228,24 @@ export async function fetchClienteByCnpj(cnpj) {
 export async function consultarCnpj(cnpj) {
   const clean = cnpj.replace(/\D/g, '')
   const response = await request(`/cnpj/${clean}`)
-  // response = { ok, data: {...cnpj data}, gesthub: {...update result} }
   return response.data
+}
+
+// --- Consulta CPF/CNPJ para auto-fill de tomador ---
+export async function consultarDocumento(documento) {
+  const clean = documento.replace(/\D/g, '')
+  if (clean.length === 14) {
+    return consultarCnpj(clean)
+  }
+  return null // CPF não tem API pública gratuita
+}
+
+// --- Busca municípios IBGE ---
+export async function buscarMunicipios(uf) {
+  const response = await fetch(`https://servicodados.ibge.gov.br/api/v1/localidades/estados/${uf}/municipios?orderBy=nome`)
+  if (!response.ok) return []
+  const data = await response.json()
+  return data.map(m => ({ value: String(m.id), label: `${m.nome} (${m.id})` }))
 }
 
 // --- XML Logs ---
