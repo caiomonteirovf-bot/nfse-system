@@ -98,6 +98,10 @@ def on_startup():
 
 
 # --- Servir frontend buildado (producao) ---
-_frontend_dist = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
-if os.path.isdir(_frontend_dist):
+_frontend_candidates = [
+    os.path.join(os.path.dirname(__file__), "..", "frontend", "dist"),  # dev local
+    os.path.join(os.path.dirname(__file__), "..", "frontend_dist"),     # Docker
+]
+_frontend_dist = next((p for p in _frontend_candidates if os.path.isdir(p)), None)
+if _frontend_dist:
     app.mount("/", StaticFiles(directory=_frontend_dist, html=True), name="frontend")
