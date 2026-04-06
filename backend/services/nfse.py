@@ -152,7 +152,7 @@ class NfseService:
         }
 
     def _query_base(self, db: Session, ano: int, mes: Optional[int], cliente_id: Optional[int] = None, cliente_doc: Optional[str] = None):
-        q = db.query(Nfse).filter(Nfse.status != "CANCELADA")
+        q = db.query(Nfse).filter(Nfse.status.notin_(["CANCELADA", "ERRO", "PENDENTE", "RASCUNHO"]))
         q = _filtro_cliente(q, cliente_id, cliente_doc)
         if ano and mes:
             last_day = monthrange(ano, mes)[1]

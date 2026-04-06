@@ -393,10 +393,10 @@ export default function NotasFiscais({ tomadores = [], onRefresh, clienteAtivo, 
                       {n.protocolo && n.protocolo.startsWith('nfs') && (
                         <a className="btn btn--tiny" href={pdfNfseNuvemUrl(n.protocolo)} target="_blank" rel="noopener noreferrer">PDF</a>
                       )}
-                      {n.status !== 'CANCELADA' && n.status !== 'PENDENTE' && (
+                      {n.status !== 'CANCELADA' && n.status !== 'PENDENTE' && n.status !== 'ERRO' && (
                         <button className="btn btn--tiny btn--danger" onClick={() => { setCancelModal(n.id); setCancelMotivo('') }}>Cancelar</button>
                       )}
-                      {(n.status === 'PENDENTE' || n.status === 'RASCUNHO') && (
+                      {(n.status === 'PENDENTE' || n.status === 'RASCUNHO' || n.status === 'ERRO') && (
                         <button className="btn btn--tiny btn--danger" onClick={() => handleDelete(n.id)}>Excluir</button>
                       )}
                     </div>
