@@ -236,16 +236,6 @@ async def configurar_nfse_por_cnpj(db: Session, empresa) -> dict:
     ambiente = "producao" if nuvem["ambiente"] == "producao" else "homologacao"
     op_simp_nac = 3 if empresa.optante_simples else 1
 
-    reg_trib = {"opSimpNac": op_simp_nac}
-    if empresa.regime_especial and empresa.regime_especial > 0:
-        reg_trib["regEspTrib"] = empresa.regime_especial
-        reg_trib["xEstProvReg"] = "Regime especial"
-    else:
-        # Nuvem Fiscal injeta regEspTrib=0 por default gerando xEstProvReg vazio.
-        # Enviar xEstProvReg com valor para satisfazer minLength=1 do XSD SPED.
-        reg_trib["regEspTrib"] = 0
-        reg_trib["xEstProvReg"] = "Nenhum"
-
     payload = {
         "ambiente": ambiente,
         "rps": {
@@ -253,8 +243,15 @@ async def configurar_nfse_por_cnpj(db: Session, empresa) -> dict:
             "serie": empresa.serie_rps or "1",
             "numero": empresa.ultimo_rps or 0,
         },
-        "regTrib": reg_trib,
     }
+    # Só incluir regTrib se tem regime especial > 0
+    if empresa.regime_especial and empresa.regime_especial > 0:
+        payload["regTrib"] = {
+            "opSimpNac": op_simp_nac,
+            "regEspTrib": empresa.regime_especial,
+        }
+    else:
+        payload["regTrib"] = {"opSimpNac": op_simp_nac}
 
     async with httpx.AsyncClient(timeout=30) as client:
         resp = await client.put(f"{base_url}/empresas/{cnpj}/nfse", headers=headers, json=payload)
