@@ -419,6 +419,12 @@ def _build_dps_payload(nfse: Nfse, config: PrestadorConfig, prestador_data: dict
     # Referência SEMPRE única — usa ID + timestamp para evitar duplicata na Nuvem Fiscal
     referencia = f"nfse-{nfse.id}-{int(agora.timestamp())}"
 
+    # regTrib no DPS — sobrescreve config da empresa na Nuvem Fiscal
+    reg_esp = prestador_data.get("regime_especial", 0) if prestador_data else int(getattr(config, 'regime_especial', 0) or 0)
+    reg_trib_dps = {"opSimpNac": 3 if is_simples else 1}
+    if reg_esp and reg_esp > 0:
+        reg_trib_dps["regEspTrib"] = reg_esp
+
     payload = {
         "ambiente": ambiente,
         "referencia": referencia,
@@ -427,6 +433,7 @@ def _build_dps_payload(nfse: Nfse, config: PrestadorConfig, prestador_data: dict
             "dhEmi": dh_emi,
             "verAplic": "NfseSystem-1.0",
             "dCompet": d_compet,
+            "regTrib": reg_trib_dps,
             "prest": {
                 "CNPJ": cnpj_prestador,
             },
