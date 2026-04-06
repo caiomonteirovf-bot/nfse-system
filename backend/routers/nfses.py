@@ -187,6 +187,9 @@ def excluir_nfse(nfse_id: int, db: Session = Depends(get_db)):
     item = db.get(Nfse, nfse_id)
     if not item:
         raise HTTPException(status_code=404, detail="NFS-e nao encontrada.")
+    # Remover registros dependentes (xml_logs)
+    from backend.models.xml_log import XmlLog
+    db.query(XmlLog).filter(XmlLog.nfse_id == nfse_id).delete()
     db.delete(item)
     db.commit()
     return {"ok": True}
