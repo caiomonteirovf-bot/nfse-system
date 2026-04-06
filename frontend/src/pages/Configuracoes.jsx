@@ -3,7 +3,7 @@ import {
   fetchPrestadorConfig, updatePrestadorConfig,
   fetchEmpresas, createEmpresa, updateEmpresa, deleteEmpresa, fetchEmpresaByCnpj,
   cadastrarEmpresaNuvemPorId, configurarNfsePorId, uploadCertificadoPorId,
-  consultarCnpj, fetchClienteByCnpj,
+  consultarCnpj, fetchClienteByCnpj, fetchBootstrap,
 } from '../api'
 import { UF_OPTIONS } from '../lib/constants'
 
@@ -76,7 +76,8 @@ export default function Configuracoes({ onRefresh, clienteAtivo }) {
 
   useEffect(() => { loadEmpresas() }, [loadEmpresas])
 
-  // When clienteAtivo changes, select matching empresa or auto-open new form with Gesthub data
+  // When clienteAtivo changes, select matching empresa or auto-open new form
+  // Merges: Gesthub (cadastral) + Receita Federal (email/tel/socios) + PrestadorConfig (tributacao)
   useEffect(() => {
     if (!clienteAtivo?.document) return
     const doc = clienteAtivo.document.replace(/\D/g, '')
@@ -91,52 +92,82 @@ export default function Configuracoes({ onRefresh, clienteAtivo }) {
       }
     }
 
-    // Empresa nao cadastrada — auto-preencher form de nova empresa com dados do Gesthub
+    // Empresa nao cadastrada — montar form com dados de 3 fontes
     setSelectedId(null)
     setForm(null)
 
-    // Buscar dados completos do Gesthub para pre-preencher
-    fetchClienteByCnpj(clienteAtivo.document)
-      .then(data => {
-        if (!data) return
-        setNewForm({
-          ...EMPTY_EMPRESA,
-          cnpj: (data.document || '').replace(/\D/g, ''),
-          razaoSocial: data.legalName || '',
-          nomeFantasia: data.tradeName || '',
-          logradouro: data.logradouro || '',
-          numeroEndereco: data.numeroEndereco || '',
-          complemento: data.complemento || '',
-          bairro: data.bairro || '',
-          cidade: data.city || '',
-          uf: data.state || '',
-          cep: data.cep || '',
-          codigoMunicipio: data.codigoMunicipioIbge || '',
-          email: data.email || '',
-          telefone: data.phone || '',
-          inscricaoMunicipal: data.inscricaoMunicipal || '',
-          codigoCnae: data.cnaePrincipal || '',
-          gesthubClientId: data.id || null,
-          optanteSimples: (data.taxRegime || '').toUpperCase().includes('SIMPLES') || false,
-        })
-        setShowNew(true)
-        setCnpjMsg(`Dados pre-preenchidos do Gesthub: ${data.legalName || ''}`)
-      })
-      .catch(() => {
-        // Gesthub indisponivel — abre form vazio com dados basicos do seletor
-        setNewForm({
-          ...EMPTY_EMPRESA,
-          cnpj: doc,
-          razaoSocial: clienteAtivo.legalName || '',
-          nomeFantasia: clienteAtivo.tradeName || '',
-          cidade: clienteAtivo.city || '',
-          uf: clienteAtivo.state || '',
-          email: clienteAtivo.email || '',
-          telefone: clienteAtivo.phone || '',
-        })
-        setShowNew(true)
-      })
-  }, [clienteAtivo?.document, empresas])
+    const buildForm = async () => {
+      const base = { ...EMPTY_EMPRESA, cnpj: doc }
+
+      // 1. Gesthub (fonte master — cadastral)
+      try {
+        const gh = await fetchClienteByCnpj(clienteAtivo.document)
+        if (gh) {
+          Object.assign(base, {
+            razaoSocial: gh.legalName || '',
+            nomeFantasia: gh.tradeName || '',
+            logradouro: gh.logradouro || '',
+            numeroEndereco: gh.numeroEndereco || '',
+            complemento: gh.complemento || '',
+            bairro: gh.bairro || '',
+            cidade: gh.city || '',
+            uf: gh.state || '',
+            cep: gh.cep || '',
+            codigoMunicipio: gh.codigoMunicipioIbge || '',
+            email: gh.email || '',
+            telefone: gh.phone || '',
+            inscricaoMunicipal: gh.inscricaoMunicipal || '',
+            codigoCnae: gh.cnaePrincipal || '',
+            gesthubClientId: gh.id || null,
+            optanteSimples: (gh.taxRegime || '').toUpperCase().includes('SIMPLES'),
+          })
+        }
+      } catch { /* Gesthub indisponivel */ }
+
+      // 2. Receita Federal (complementa email, telefone, socios, endereco faltante)
+      try {
+        const rf = await consultarCnpj(doc)
+        if (rf) {
+          if (!base.email) base.email = rf.email || ''
+          if (!base.telefone) base.telefone = rf.telefone || ''
+          if (!base.nomeFantasia) base.nomeFantasia = rf.nomeFantasia || ''
+          if (!base.logradouro) base.logradouro = rf.logradouro || ''
+          if (!base.numeroEndereco) base.numeroEndereco = rf.numero || ''
+          if (!base.complemento) base.complemento = rf.complemento || ''
+          if (!base.bairro) base.bairro = rf.bairro || ''
+          if (!base.cidade) base.cidade = rf.cidade || ''
+          if (!base.uf) base.uf = rf.uf || ''
+          if (!base.cep) base.cep = rf.cep || ''
+          if (!base.codigoMunicipio) base.codigoMunicipio = rf.codigoMunicipioIbge || ''
+          if (!base.codigoCnae) base.codigoCnae = rf.cnaePrincipal || ''
+          if (rf.optanteSimples !== undefined) base.optanteSimples = rf.optanteSimples
+          if (rf.socios?.length) setSociosData(rf.socios)
+        }
+      } catch { /* RF indisponivel */ }
+
+      // 3. PrestadorConfig (recupera tributacao ja configurada anteriormente)
+      if (oauth) {
+        if (!base.inscricaoMunicipal && oauth.inscricaoMunicipal) base.inscricaoMunicipal = oauth.inscricaoMunicipal
+        if (!base.itemListaServico && oauth.itemListaServicoPadrao) base.itemListaServico = oauth.itemListaServicoPadrao
+        if (!base.codigoTributacao && oauth.codigoTributacao) base.codigoTributacao = oauth.codigoTributacao
+        if (!base.codigoCnae && oauth.codigoCnaePadrao) base.codigoCnae = oauth.codigoCnaePadrao
+        if (!base.aliquotaIssPadrao && oauth.aliquotaIssPadrao) base.aliquotaIssPadrao = oauth.aliquotaIssPadrao
+        if (oauth.optanteSimples !== undefined && !base.optanteSimples) base.optanteSimples = oauth.optanteSimples
+      }
+
+      // Fallback: dados basicos do seletor
+      if (!base.razaoSocial) base.razaoSocial = clienteAtivo.legalName || ''
+      if (!base.nomeFantasia) base.nomeFantasia = clienteAtivo.tradeName || ''
+      if (!base.cidade) base.cidade = clienteAtivo.city || ''
+      if (!base.uf) base.uf = clienteAtivo.state || ''
+
+      setNewForm(base)
+      setShowNew(true)
+      setCnpjMsg('Dados pre-preenchidos (Gesthub + Receita Federal + Config anterior)')
+    }
+
+    buildForm()
+  }, [clienteAtivo?.document, empresas]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const selectEmpresa = (emp) => {
     setSelectedId(emp.id)
@@ -228,12 +259,14 @@ export default function Configuracoes({ onRefresh, clienteAtivo }) {
         }))
         setCnpjMsg(`Dados carregados do Gesthub: ${gesthubData.legalName || ''}`)
 
-        // 2. Complementar com Receita Federal (socios, dados faltantes)
+        // 2. Complementar com Receita Federal (socios, email, telefone, dados faltantes)
         try {
           const rf = await consultarCnpj(cnpj)
           setTargetForm(f => ({
             ...f,
-            // Só preenche campos que ficaram vazios
+            email: f.email || rf.email || '',
+            telefone: f.telefone || rf.telefone || '',
+            nomeFantasia: f.nomeFantasia || rf.nomeFantasia || '',
             logradouro: f.logradouro || rf.logradouro || '',
             numeroEndereco: f.numeroEndereco || rf.numero || '',
             complemento: f.complemento || rf.complemento || '',
