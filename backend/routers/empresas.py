@@ -1,5 +1,7 @@
 """Router para gestão de empresas/prestadores — CRUD + integração Nuvem Fiscal."""
 
+import base64
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -185,5 +187,32 @@ async def upload_certificado_empresa(empresa_id: int, body: dict, db: Session = 
     if result.get("ok"):
         empresa.nuvem_fiscal_certificado = True
         empresa.certificado_senha = senha
+        empresa.certificado_pfx = base64.b64decode(pfx_base64)
+
+        # Extrair info do certificado via resposta da Nuvem Fiscal
+        data = result.get("data", {})
+        if data.get("not_valid_after"):
+            try:
+                empresa.certificado_validade = datetime.fromisoformat(
+                    data["not_valid_after"].replace("Z", "+00:00")
+                )
+                now = datetime.utcnow()
+                days_left = (empresa.certificado_validade.replace(tzinfo=None) - now).days
+                if days_left < 0:
+                    empresa.certificado_status = "VENCIDO"
+                elif days_left < 30:
+                    empresa.certificado_status = "A_VENCER"
+                else:
+                    empresa.certificado_status = "NO_PRAZO"
+            except (ValueError, TypeError):
+                pass
+        # CNPJ do certificado (do subject)
+        subject = data.get("subject_name", "")
+        if subject:
+            import re
+            cnpj_match = re.search(r'\d{14}', subject.replace(".", "").replace("/", "").replace("-", ""))
+            if cnpj_match:
+                empresa.certificado_cnpj = cnpj_match.group()
+
         db.commit()
     return result

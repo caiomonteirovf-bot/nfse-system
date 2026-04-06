@@ -408,8 +408,15 @@ export default function Configuracoes({ onRefresh, clienteAtivo }) {
       const r = await uploadCertificadoPorId(selectedId, b64, certSenha)
       if (r.ok) {
         setCertMsg('Certificado enviado com sucesso!')
-        setForm(f => ({ ...f, nuvemFiscalCertificado: true, certificadoCarregado: true }))
         await loadEmpresas()
+        // Recarregar dados completos da empresa (inclui cert info)
+        try {
+          const { data: fresh } = await fetchEmpresaByCnpj(form.cnpj)
+          if (fresh) setForm({ ...fresh })
+          else setForm(f => ({ ...f, nuvemFiscalCertificado: true, certificadoCarregado: true }))
+        } catch {
+          setForm(f => ({ ...f, nuvemFiscalCertificado: true, certificadoCarregado: true }))
+        }
       } else {
         setCertMsg('Erro: ' + (r.error || 'Falha'))
       }
