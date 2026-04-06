@@ -553,48 +553,53 @@ export default function Emissao({ prestador, clienteAtivo }) {
         {showNova && clienteAtivo?.document && (
           <div className="panel__body">
             {/* Tomador */}
-            <h4 style={{ margin: '0 0 8px', fontSize: 12, textTransform: 'uppercase', color: 'var(--text-muted)', letterSpacing: '0.5px' }}>Tomador</h4>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
-              <label>
-                CNPJ/CPF *
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <input value={nova.tomadorCpfCnpj} onChange={e => setNovaField('tomadorCpfCnpj', e.target.value)} placeholder="Digite o CNPJ ou CPF" style={{ flex: 1 }} />
-                  <button className="btn btn--tiny" onClick={buscarTomador} disabled={tomBuscando} type="button">{tomBuscando ? '...' : 'Buscar'}</button>
-                </div>
-                {tomBuscaMsg && <small style={{ color: tomBuscaMsg.includes('complete') ? 'var(--warning, #f59e0b)' : 'var(--text-muted)', marginTop: 2, display: 'block' }}>{tomBuscaMsg}</small>}
-              </label>
-              <label>Razao Social<input value={nova.tomadorRazaoSocial} onChange={e => setNovaField('tomadorRazaoSocial', e.target.value)} /></label>
-              <label>Email<input value={nova.tomadorEmail} onChange={e => setNovaField('tomadorEmail', e.target.value)} /></label>
-              <label>Telefone<input value={nova.tomadorTelefone} onChange={e => setNovaField('tomadorTelefone', e.target.value)} /></label>
-              <label>
-                CEP
-                <div style={{ display: 'flex', gap: 6 }}>
+            <div style={{ background: 'var(--surface-alt, #f8fafc)', borderRadius: 8, padding: '14px 16px', marginBottom: 16 }}>
+              <h4 style={{ margin: '0 0 10px', fontSize: 13, fontWeight: 700, color: 'var(--primary, #6366f1)', letterSpacing: '0.3px' }}>TOMADOR</h4>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr 1fr', gap: 10 }}>
+                <label>
+                  CNPJ/CPF *
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <input value={nova.tomadorCpfCnpj} onChange={e => setNovaField('tomadorCpfCnpj', e.target.value)} placeholder="Digite o CNPJ ou CPF" style={{ flex: 1 }} />
+                    <button className="btn btn--tiny" onClick={buscarTomador} disabled={tomBuscando} type="button" style={{ whiteSpace: 'nowrap' }}>{tomBuscando ? '...' : 'Buscar'}</button>
+                  </div>
+                  {tomBuscaMsg && <small style={{ color: tomBuscaMsg.includes('complete') ? 'var(--warning, #f59e0b)' : 'var(--success, #22c55e)', marginTop: 3, display: 'block', fontSize: 11 }}>{tomBuscaMsg}</small>}
+                </label>
+                <label>Razao Social<input value={nova.tomadorRazaoSocial} onChange={e => setNovaField('tomadorRazaoSocial', e.target.value)} /></label>
+                <label>Email<input value={nova.tomadorEmail} onChange={e => setNovaField('tomadorEmail', e.target.value)} /></label>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 2fr 1fr', gap: 10, marginTop: 8 }}>
+                <label>Telefone<input value={nova.tomadorTelefone} onChange={e => setNovaField('tomadorTelefone', e.target.value)} /></label>
+                <label>
+                  CEP
                   <input value={nova.tomadorCep} onChange={e => {
                     const v = e.target.value
                     setNovaField('tomadorCep', v)
                     if (v.replace(/\D/g, '').length === 8) buscarCep(v)
-                  }} placeholder="00000-000" style={{ flex: 1 }} />
-                </div>
-              </label>
-              <label style={{ gridColumn: 'span 2' }}>Logradouro<input value={nova.tomadorLogradouro} onChange={e => setNovaField('tomadorLogradouro', e.target.value)} placeholder="Rua, Av..." /></label>
-              <label>Numero<input value={nova.tomadorNumero} onChange={e => setNovaField('tomadorNumero', e.target.value)} /></label>
-              <label>Complemento<input value={nova.tomadorComplemento} onChange={e => setNovaField('tomadorComplemento', e.target.value)} /></label>
-              <label>Bairro<input value={nova.tomadorBairro} onChange={e => setNovaField('tomadorBairro', e.target.value)} /></label>
-              <label>Cidade<input value={nova.tomadorCidade} onChange={e => setNovaField('tomadorCidade', e.target.value)} /></label>
-              <label>UF
-                <select value={nova.tomadorUf} onChange={e => setNovaField('tomadorUf', e.target.value)} style={{ width: 80 }}>
-                  <option value="">--</option>
-                  {UFS.map(uf => <option key={uf} value={uf}>{uf}</option>)}
-                </select>
-              </label>
+                  }} placeholder="00000-000" />
+                </label>
+                <label>Logradouro<input value={nova.tomadorLogradouro} onChange={e => setNovaField('tomadorLogradouro', e.target.value)} placeholder="Rua, Av..." /></label>
+                <label>Numero<input value={nova.tomadorNumero} onChange={e => setNovaField('tomadorNumero', e.target.value)} /></label>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 80px', gap: 10, marginTop: 8 }}>
+                <label>Complemento<input value={nova.tomadorComplemento} onChange={e => setNovaField('tomadorComplemento', e.target.value)} /></label>
+                <label>Bairro<input value={nova.tomadorBairro} onChange={e => setNovaField('tomadorBairro', e.target.value)} /></label>
+                <label>Cidade<input value={nova.tomadorCidade} onChange={e => setNovaField('tomadorCidade', e.target.value)} /></label>
+                <label>UF
+                  <select value={nova.tomadorUf} onChange={e => setNovaField('tomadorUf', e.target.value)}>
+                    <option value="">--</option>
+                    {UFS.map(uf => <option key={uf} value={uf}>{uf}</option>)}
+                  </select>
+                </label>
+              </div>
             </div>
 
             {/* Servico */}
-            <h4 style={{ margin: '16px 0 8px', fontSize: 12, textTransform: 'uppercase', color: 'var(--text-muted)', letterSpacing: '0.5px' }}>Servico</h4>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
-              <label>Valor do Servico *<input type="number" step="0.01" value={nova.valorServicos} onChange={e => setNovaField('valorServicos', e.target.value)} /></label>
-              <label>Desconto Incondicionado<input type="number" step="0.01" value={nova.descontoIncondicionado} onChange={e => setNovaField('descontoIncondicionado', e.target.value)} placeholder="0.00" /></label>
-              <label>Data Emissao<input type="date" value={nova.dataEmissao} onChange={e => setNovaField('dataEmissao', e.target.value)} /></label>
+            <div style={{ background: 'var(--surface-alt, #f8fafc)', borderRadius: 8, padding: '14px 16px', marginBottom: 16 }}>
+              <h4 style={{ margin: '0 0 10px', fontSize: 13, fontWeight: 700, color: 'var(--primary, #6366f1)', letterSpacing: '0.3px' }}>SERVICO</h4>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+                <label>Valor do Servico *<input type="number" step="0.01" value={nova.valorServicos} onChange={e => setNovaField('valorServicos', e.target.value)} style={{ fontWeight: 600, fontSize: 14 }} /></label>
+                <label>Desconto Incondicionado<input type="number" step="0.01" value={nova.descontoIncondicionado} onChange={e => setNovaField('descontoIncondicionado', e.target.value)} placeholder="0.00" /></label>
+                <label>Data Emissao<input type="date" value={nova.dataEmissao} onChange={e => setNovaField('dataEmissao', e.target.value)} /></label>
               <label style={{ gridColumn: '1 / -1', position: 'relative' }}>
                 <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   Descricao do Servico *
@@ -647,10 +652,12 @@ export default function Emissao({ prestador, clienteAtivo }) {
                   </div>
                 )}
               </label>
+              </div>
             </div>
 
             {/* Tributacao Municipal */}
-            <h4 style={{ margin: '16px 0 8px', fontSize: 12, textTransform: 'uppercase', color: 'var(--text-muted)', letterSpacing: '0.5px' }}>Tributacao Municipal (ISS)</h4>
+            <div style={{ background: 'var(--surface-alt, #f8fafc)', borderRadius: 8, padding: '14px 16px', marginBottom: 16 }}>
+            <h4 style={{ margin: '0 0 10px', fontSize: 13, fontWeight: 700, color: 'var(--primary, #6366f1)', letterSpacing: '0.3px' }}>TRIBUTACAO MUNICIPAL (ISS)</h4>
             {clienteAtivo && (
               <div style={{ marginBottom: 8, fontSize: 12, color: 'var(--text-muted)', display: 'flex', gap: 16 }}>
                 {clienteAtivo.cnaePrincipal && <span>CNAE: <strong>{clienteAtivo.cnaePrincipal}</strong></span>}
@@ -672,15 +679,17 @@ export default function Emissao({ prestador, clienteAtivo }) {
               </div>
             </div>
 
+            </div>
+
             {/* Tributacao Federal */}
             {!regime && (
-              <div style={{ margin: '16px 0 0', padding: '8px 12px', background: 'var(--bg-panel)', borderRadius: 6, fontSize: 12, color: 'var(--text-muted)' }}>
+              <div style={{ padding: '10px 14px', background: 'var(--surface-alt, #f8fafc)', borderRadius: 8, fontSize: 12, color: 'var(--text-muted)', marginBottom: 16 }}>
                 Selecione um cliente para definir o regime tributario e calcular retencoes federais.
               </div>
             )}
 
             {isSimples && (
-              <div style={{ margin: '16px 0 0', padding: '8px 12px', background: 'var(--bg-panel)', borderRadius: 6, fontSize: 12, color: 'var(--text-muted)' }}>
+              <div style={{ padding: '10px 14px', background: 'var(--surface-alt, #f8fafc)', borderRadius: 8, fontSize: 12, color: 'var(--success, #22c55e)', marginBottom: 16, fontWeight: 500 }}>
                 Simples Nacional — tributos federais apurados via DAS. Retencoes nao aplicaveis.
               </div>
             )}
@@ -873,7 +882,15 @@ export default function Emissao({ prestador, clienteAtivo }) {
         </div>
       )}
 
-      {error && <p className="form-error">{error}</p>}
+      {error && (
+        <div className="panel" style={{ borderLeft: '3px solid var(--danger, #ef4444)' }}>
+          <div className="panel__body" style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 18 }}>!</span>
+            <span style={{ fontSize: 13, color: 'var(--danger, #ef4444)', fontWeight: 500 }}>{error}</span>
+            <button className="btn btn--tiny" onClick={() => setError('')} style={{ marginLeft: 'auto' }}>Fechar</button>
+          </div>
+        </div>
+      )}
 
       {/* Resultado Emissao */}
       {resultado && (
@@ -906,10 +923,23 @@ export default function Emissao({ prestador, clienteAtivo }) {
                               {r.ok ? 'Emitida' : 'Erro'}
                             </span>
                           </td>
-                          <td style={{ fontSize: 12 }}>
+                          <td style={{ fontSize: 12, maxWidth: 500 }}>
                             {r.ok
                               ? (r.chaveAcesso ? `Chave: ${r.chaveAcesso.substring(0, 20)}...` : r.nuvemFiscalId || 'OK')
-                              : r.error
+                              : (
+                                <div style={{ background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.2)', borderRadius: 6, padding: '8px 10px', color: 'var(--danger, #ef4444)', fontSize: 12, lineHeight: 1.4, wordBreak: 'break-word' }}>
+                                  {(() => {
+                                    try {
+                                      const err = r.error || ''
+                                      const match = err.match(/message["']?\s*:\s*["']([^"']+)["']/)
+                                      const msgMatch = err.match(/Validation failed:\s*(.+?)(?:\s*\{|$)/)
+                                      if (msgMatch) return msgMatch[1].trim()
+                                      if (match) return match[1]
+                                      return err.length > 200 ? err.substring(0, 200) + '...' : err
+                                    } catch { return r.error }
+                                  })()}
+                                </div>
+                              )
                             }
                           </td>
                           <td>

@@ -236,6 +236,10 @@ async def configurar_nfse_por_cnpj(db: Session, empresa) -> dict:
     ambiente = "producao" if nuvem["ambiente"] == "producao" else "homologacao"
     op_simp_nac = 3 if empresa.optante_simples else 1
 
+    reg_trib = {"opSimpNac": op_simp_nac}
+    if empresa.regime_especial and empresa.regime_especial > 0:
+        reg_trib["regEspTrib"] = empresa.regime_especial
+
     payload = {
         "ambiente": ambiente,
         "rps": {
@@ -243,7 +247,7 @@ async def configurar_nfse_por_cnpj(db: Session, empresa) -> dict:
             "serie": empresa.serie_rps or "1",
             "numero": empresa.ultimo_rps or 0,
         },
-        "regTrib": {"opSimpNac": op_simp_nac, "regEspTrib": empresa.regime_especial or 0},
+        "regTrib": reg_trib,
     }
 
     async with httpx.AsyncClient(timeout=30) as client:
