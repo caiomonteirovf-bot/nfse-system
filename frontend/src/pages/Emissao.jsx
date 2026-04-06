@@ -555,18 +555,16 @@ export default function Emissao({ prestador, clienteAtivo }) {
             {/* Tomador */}
             <div style={{ background: 'var(--surface-alt, #f8fafc)', borderRadius: 8, padding: '14px 16px', marginBottom: 16 }}>
               <h4 style={{ margin: '0 0 10px', fontSize: 13, fontWeight: 700, color: 'var(--primary, #6366f1)', letterSpacing: '0.3px' }}>TOMADOR</h4>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr 1fr', gap: 10 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '200px auto 1fr 1fr', gap: 10, alignItems: 'end' }}>
                 <label>
                   CNPJ/CPF *
-                  <div style={{ display: 'flex', gap: 6 }}>
-                    <input value={nova.tomadorCpfCnpj} onChange={e => setNovaField('tomadorCpfCnpj', e.target.value)} placeholder="Digite o CNPJ ou CPF" style={{ flex: 1 }} />
-                    <button className="btn btn--tiny" onClick={buscarTomador} disabled={tomBuscando} type="button" style={{ whiteSpace: 'nowrap' }}>{tomBuscando ? '...' : 'Buscar'}</button>
-                  </div>
-                  {tomBuscaMsg && <small style={{ color: tomBuscaMsg.includes('complete') ? 'var(--warning, #f59e0b)' : 'var(--success, #22c55e)', marginTop: 3, display: 'block', fontSize: 11 }}>{tomBuscaMsg}</small>}
+                  <input value={nova.tomadorCpfCnpj} onChange={e => setNovaField('tomadorCpfCnpj', e.target.value)} placeholder="Digite o CNPJ ou CPF" />
                 </label>
+                <button className="btn btn--solid" onClick={buscarTomador} disabled={tomBuscando} type="button" style={{ whiteSpace: 'nowrap', height: 36, padding: '0 16px', fontSize: 13 }}>{tomBuscando ? 'Buscando...' : 'Buscar'}</button>
                 <label>Razao Social<input value={nova.tomadorRazaoSocial} onChange={e => setNovaField('tomadorRazaoSocial', e.target.value)} /></label>
                 <label>Email<input value={nova.tomadorEmail} onChange={e => setNovaField('tomadorEmail', e.target.value)} /></label>
               </div>
+              {tomBuscaMsg && <p style={{ color: tomBuscaMsg.includes('complete') ? 'var(--warning, #f59e0b)' : 'var(--success, #22c55e)', margin: '6px 0 0', fontSize: 12, fontWeight: 500 }}>{tomBuscaMsg}</p>}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 2fr 1fr', gap: 10, marginTop: 8 }}>
                 <label>Telefone<input value={nova.tomadorTelefone} onChange={e => setNovaField('tomadorTelefone', e.target.value)} /></label>
                 <label>
