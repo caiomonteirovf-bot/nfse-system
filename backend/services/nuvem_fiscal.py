@@ -239,6 +239,12 @@ async def configurar_nfse_por_cnpj(db: Session, empresa) -> dict:
     reg_trib = {"opSimpNac": op_simp_nac}
     if empresa.regime_especial and empresa.regime_especial > 0:
         reg_trib["regEspTrib"] = empresa.regime_especial
+        reg_trib["xEstProvReg"] = "Regime especial"
+    else:
+        # Nuvem Fiscal injeta regEspTrib=0 por default gerando xEstProvReg vazio.
+        # Enviar xEstProvReg com valor para satisfazer minLength=1 do XSD SPED.
+        reg_trib["regEspTrib"] = 0
+        reg_trib["xEstProvReg"] = "Nenhum"
 
     payload = {
         "ambiente": ambiente,
