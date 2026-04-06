@@ -238,6 +238,11 @@ async def configurar_nfse_por_cnpj(db: Session, empresa) -> dict:
 
     payload = {
         "ambiente": ambiente,
+        "rps": {
+            "lote": 1,
+            "serie": empresa.serie_rps or "1",
+            "numero": empresa.ultimo_rps or 0,
+        },
         "regTrib": {"opSimpNac": op_simp_nac, "regEspTrib": empresa.regime_especial or 0},
     }
 
