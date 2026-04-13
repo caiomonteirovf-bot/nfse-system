@@ -128,7 +128,7 @@ export default function App() {
   return (
     <>
     <PlatformBar />
-    <div className="app-shell" style={{ minHeight: 'calc(100vh - 36px)' }}>
+    <div className="app-shell" style={{ minHeight: 'calc(100vh - 28px)' }}>
       {/* Sidebar */}
       <aside className="sidebar">
         <div className="sidebar__workspace">
