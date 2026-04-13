@@ -11,6 +11,43 @@ import XmlHistorico from './pages/XmlHistorico'
 import Captura from './pages/Captura'
 import './App.css'
 
+// ── Platform Switcher ─────────────────────────────────────────
+const PLATFORM_CURRENT = 'nfse'
+const PLATFORMS = [
+  { id: 'gesthub', label: 'GestHub', color: '#6366F1' },
+  { id: 'nfse', label: 'NFS-e System', color: '#22C55E' },
+  { id: 'finance', label: 'Átrio Finance', color: '#7F77DD' },
+]
+const PLATFORM_PORTS = { gesthub: 8000, nfse: 3020, finance: 3000 }
+function platformUrl(id) {
+  if (id === PLATFORM_CURRENT) return null
+  return `${window.location.protocol}//${window.location.hostname}:${PLATFORM_PORTS[id]}`
+}
+function PlatformBar() {
+  return (
+    <nav className="platform-bar">
+      {PLATFORMS.map((p, i) => {
+        const active = p.id === PLATFORM_CURRENT
+        const url = platformUrl(p.id)
+        return (
+          <span key={p.id} style={{ display: 'contents' }}>
+            {i > 0 && <div className="platform-bar__sep" />}
+            <a
+              href={url || '#'}
+              className={`platform-bar__tab${active ? ' platform-bar__tab--active' : ''}`}
+              {...(!active && url ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+              onClick={active ? (e) => e.preventDefault() : undefined}
+            >
+              <span className="platform-bar__dot" style={{ background: p.color }} />
+              {p.label}
+            </a>
+          </span>
+        )
+      })}
+    </nav>
+  )
+}
+
 const PAGE_LABELS = {
   dashboard: 'Dashboard',
   notas: 'Notas Fiscais',
@@ -89,7 +126,9 @@ export default function App() {
   }
 
   return (
-    <div className="app-shell">
+    <>
+    <PlatformBar />
+    <div className="app-shell" style={{ minHeight: 'calc(100vh - 36px)' }}>
       {/* Sidebar */}
       <aside className="sidebar">
         <div className="sidebar__workspace">
@@ -212,5 +251,6 @@ export default function App() {
         </div>
       </main>
     </div>
+    </>
   )
 }
