@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -5,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from backend.database import get_db
 from backend.models.tomador import Tomador
+from backend.services import nuvem_fiscal
 from backend.utils.normalize import normalize_text
 
 router = APIRouter(prefix="/tomadores", tags=["tomadores"])
@@ -55,6 +57,15 @@ def listar_tomadores(
     return {"ok": True, "data": [t.to_dict() for t in items]}
 
 
+@router.get("/consultar-cep/{cep}")
+async def consultar_cep(cep: str, db: Session = Depends(get_db)):
+    """Consulta CEP e retorna endereço + código IBGE."""
+    result = await nuvem_fiscal.consultar_cep(db, cep)
+    if not result.get("ok"):
+        raise HTTPException(status_code=404, detail=result.get("error", "CEP não encontrado."))
+    return result
+
+
 @router.get("/por-documento/{documento}")
 def buscar_tomador_por_documento(documento: str, db: Session = Depends(get_db)):
     doc_limpo = documento.replace(".", "").replace("/", "").replace("-", "").strip()
@@ -78,13 +89,31 @@ def obter_tomador(tomador_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("", status_code=201)
-def criar_tomador(body: dict, db: Session = Depends(get_db)):
+async def criar_tomador(body: dict, db: Session = Depends(get_db)):
     normalized = _normalize_tomador(body)
 
     if not normalized.get("cpf_cnpj"):
         raise HTTPException(status_code=400, detail="CPF/CNPJ obrigatorio.")
     if not normalized.get("razao_social"):
         raise HTTPException(status_code=400, detail="Razao Social obrigatoria.")
+
+    # Auto-preencher código IBGE via CEP se não informado
+    if normalized.get("cep") and not normalized.get("codigo_municipio"):
+        try:
+            cep_result = await nuvem_fiscal.consultar_cep(db, normalized["cep"])
+            if cep_result.get("ok"):
+                cep_data = cep_result["data"]
+                normalized["codigo_municipio"] = cep_data.get("codigo_municipio", "")
+                if not normalized.get("cidade") and cep_data.get("cidade"):
+                    normalized["cidade"] = cep_data["cidade"]
+                if not normalized.get("uf") and cep_data.get("uf"):
+                    normalized["uf"] = cep_data["uf"]
+                if not normalized.get("bairro") and cep_data.get("bairro"):
+                    normalized["bairro"] = cep_data["bairro"]
+                if not normalized.get("logradouro") and cep_data.get("logradouro"):
+                    normalized["logradouro"] = cep_data["logradouro"]
+        except Exception:
+            pass  # Não bloquear cadastro se CEP falhar
 
     # Verificar duplicidade
     existing = db.query(Tomador).filter(Tomador.cpf_cnpj == normalized["cpf_cnpj"]).first()
@@ -99,12 +128,27 @@ def criar_tomador(body: dict, db: Session = Depends(get_db)):
 
 
 @router.put("/{tomador_id}")
-def atualizar_tomador(tomador_id: int, body: dict, db: Session = Depends(get_db)):
+async def atualizar_tomador(tomador_id: int, body: dict, db: Session = Depends(get_db)):
     item = db.get(Tomador, tomador_id)
     if not item:
         raise HTTPException(status_code=404, detail="Tomador nao encontrado.")
 
     normalized = _normalize_tomador(body)
+
+    # Auto-preencher código IBGE via CEP se não informado
+    if normalized.get("cep") and not normalized.get("codigo_municipio"):
+        try:
+            cep_result = await nuvem_fiscal.consultar_cep(db, normalized["cep"])
+            if cep_result.get("ok"):
+                cep_data = cep_result["data"]
+                normalized["codigo_municipio"] = cep_data.get("codigo_municipio", "")
+                if not normalized.get("cidade") and cep_data.get("cidade"):
+                    normalized["cidade"] = cep_data["cidade"]
+                if not normalized.get("uf") and cep_data.get("uf"):
+                    normalized["uf"] = cep_data["uf"]
+        except Exception:
+            pass
+
     for key, value in normalized.items():
         setattr(item, key, value)
 

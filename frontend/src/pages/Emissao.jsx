@@ -15,7 +15,7 @@ const MODOS = [
 const EMPTY_NOVA = {
   tomadorCpfCnpj: '', tomadorRazaoSocial: '', tomadorEmail: '', tomadorTelefone: '',
   tomadorLogradouro: '', tomadorNumero: '', tomadorComplemento: '', tomadorBairro: '',
-  tomadorCidade: '', tomadorUf: '', tomadorCep: '',
+  tomadorCidade: '', tomadorUf: '', tomadorCep: '', tomadorCodigoMunicipio: '',
   descricaoServico: '', valorServicos: '', aliquotaIss: '',
   issRetido: false,
   aliqPis: '', aliqCofins: '', aliqCsll: '', aliqIr: '', aliqInss: '',
@@ -177,6 +177,7 @@ export default function Emissao({ prestador, clienteAtivo }) {
           tomadorCidade: t.cidade ?? '',
           tomadorUf: t.uf ?? '',
           tomadorCep: t.cep ?? '',
+          tomadorCodigoMunicipio: t.codigoMunicipio ?? '',
           _tomadorId: t.id ?? null,
         }))
         const incompleto = !t.logradouro || !t.cidade || !t.uf
@@ -205,6 +206,8 @@ export default function Emissao({ prestador, clienteAtivo }) {
             tomadorCep: d.cep ?? '',
             _tomadorId: null,
           }))
+          // Auto-buscar código IBGE pelo CEP da Receita
+          if (d.cep) buscarCep(d.cep)
           setTomBuscaMsg('Dados carregados da Receita Federal')
         } else {
           setTomBuscaMsg('CNPJ nao encontrado na Receita Federal')
@@ -233,6 +236,7 @@ export default function Emissao({ prestador, clienteAtivo }) {
       cidade: nova.tomadorCidade,
       uf: nova.tomadorUf,
       cep: nova.tomadorCep,
+      codigoMunicipio: nova.tomadorCodigoMunicipio,
     }
     try {
       if (nova._tomadorId) {
@@ -259,6 +263,7 @@ export default function Emissao({ prestador, clienteAtivo }) {
         tomadorCidade: data.localidade || f.tomadorCidade,
         tomadorUf: data.uf || f.tomadorUf,
         tomadorComplemento: data.complemento || f.tomadorComplemento,
+        tomadorCodigoMunicipio: data.ibge || f.tomadorCodigoMunicipio || '',
       }))
     } catch { /* ViaCEP indisponível */ }
   }

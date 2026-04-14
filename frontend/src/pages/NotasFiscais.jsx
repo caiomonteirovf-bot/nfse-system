@@ -49,6 +49,7 @@ export default function NotasFiscais({ tomadores = [], onRefresh, clienteAtivo, 
   const [cancelModal, setCancelModal] = useState(null)
   const [cancelMotivo, setCancelMotivo] = useState('')
   const [cancelLoading, setCancelLoading] = useState(false)
+  const [cancelPortalInfo, setCancelPortalInfo] = useState(null) // {chaveAcesso, linkConsulta, portalUrl, message}
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -149,17 +150,60 @@ export default function NotasFiscais({ tomadores = [], onRefresh, clienteAtivo, 
     }
   }
 
-  const handleCancelar = async () => {
+  const handleCancelar = async (forceLocal = false) => {
     if (!cancelModal) return
     if (!cancelMotivo.trim()) { alert('Informe o motivo do cancelamento.'); return }
     setCancelLoading(true)
     try {
-      await cancelarNfse(cancelModal, cancelMotivo.trim())
+      // Usar fetch direto (não request()) porque a resposta pode ter ok:false com canForceLocal
+      const API_BASE = import.meta.env.VITE_API_URL || '/api'
+      const raw = await fetch(`${API_BASE}/emissao/${cancelModal}/cancelar`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ motivo: cancelMotivo.trim(), forceLocal }),
+      })
+      const resp = await raw.json()
+
+      if (resp.canForceLocal && !forceLocal) {
+        // API não suporta — mostrar info do portal para cancelamento manual
+        setCancelPortalInfo({
+          chaveAcesso: resp.chaveAcesso || '',
+          linkConsulta: resp.linkConsulta || '',
+          portalUrl: resp.portalUrl || 'https://www.nfse.gov.br/EmissorNacional/Notas/Emitidas',
+          message: resp.message || 'Cancelamento via API indisponivel.',
+        })
+        setCancelLoading(false)
+        return
+      }
+
+      if (!raw.ok || !resp.ok) {
+        throw new Error(resp.error || resp.detail || `Erro HTTP ${raw.status}`)
+      }
+
+      setCancelModal(null)
+      setCancelMotivo('')
+      setCancelPortalInfo(null)
+      load()
+    } catch (e) {
+      alert('Erro: ' + (e.message || 'Erro ao cancelar'))
+    } finally {
+      setCancelLoading(false)
+    }
+  }
+
+  const handleCancelarLocal = async () => {
+    setCancelPortalInfo(null)
+    setCancelLoading(true)
+    try {
+      await request(`/emissao/${cancelModal}/cancelar`, {
+        method: 'POST',
+        body: JSON.stringify({ motivo: cancelMotivo.trim(), forceLocal: true }),
+      })
       setCancelModal(null)
       setCancelMotivo('')
       load()
     } catch (e) {
-      alert('Erro: ' + e.message)
+      alert('Erro: ' + (e.message || 'Erro ao cancelar localmente'))
     } finally {
       setCancelLoading(false)
     }
@@ -516,31 +560,85 @@ export default function NotasFiscais({ tomadores = [], onRefresh, clienteAtivo, 
       )}
       {/* Cancel Modal */}
       {cancelModal && (
-        <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={() => setCancelModal(null)}>
-          <div className="modal-card" style={{ maxWidth: 480 }} onClick={e => e.stopPropagation()}>
+        <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={() => { setCancelModal(null); setCancelPortalInfo(null) }}>
+          <div className="modal-card" style={{ maxWidth: 520 }} onClick={e => e.stopPropagation()}>
             <header className="modal-card__header">
               <h3>Cancelar NFS-e</h3>
-              <button className="btn btn--ghost" onClick={() => setCancelModal(null)}>X</button>
+              <button className="btn btn--ghost" onClick={() => { setCancelModal(null); setCancelPortalInfo(null) }}>X</button>
             </header>
             <div className="modal-card__body">
-              <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, padding: 12, marginBottom: 16, fontSize: 13 }}>
-                Esta acao cancelara a NFS-e na prefeitura (se emitida via Nuvem Fiscal) e atualizara o status local para CANCELADA. Esta acao nao pode ser desfeita.
-              </div>
-              <label style={{ display: 'block', marginBottom: 6, fontSize: 13, fontWeight: 600 }}>Motivo do cancelamento *</label>
-              <textarea
-                value={cancelMotivo}
-                onChange={e => setCancelMotivo(e.target.value)}
-                placeholder="Ex: Erro nos dados do tomador, valor incorreto, nota duplicada..."
-                rows={3}
-                style={{ width: '100%', resize: 'vertical' }}
-                autoFocus
-              />
+              {!cancelPortalInfo ? (
+                <>
+                  <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, padding: 12, marginBottom: 16, fontSize: 13 }}>
+                    Esta acao tentara cancelar a NFS-e na prefeitura via API. Se nao for possivel, voce podera cancelar manualmente no portal ou apenas marcar como cancelada no sistema.
+                  </div>
+                  <label style={{ display: 'block', marginBottom: 6, fontSize: 13, fontWeight: 600 }}>Motivo do cancelamento *</label>
+                  <textarea
+                    value={cancelMotivo}
+                    onChange={e => setCancelMotivo(e.target.value)}
+                    placeholder="Ex: Erro nos dados do tomador, valor incorreto, nota duplicada..."
+                    rows={3}
+                    style={{ width: '100%', resize: 'vertical' }}
+                    autoFocus
+                  />
+                </>
+              ) : (
+                <>
+                  <div style={{ background: 'rgba(251,191,36,0.15)', border: '1px solid rgba(251,191,36,0.4)', borderRadius: 8, padding: 12, marginBottom: 16, fontSize: 13 }}>
+                    <strong>Cancelamento via API indisponivel</strong><br />
+                    {cancelPortalInfo.message}
+                  </div>
+                  <p style={{ fontSize: 13, marginBottom: 12 }}>Voce tem duas opcoes:</p>
+                  <div style={{ background: 'var(--bg-secondary, #f8f9fa)', borderRadius: 8, padding: 12, marginBottom: 12 }}>
+                    <strong style={{ fontSize: 13 }}>Opcao 1: Cancelar no Portal NFS-e</strong>
+                    <p style={{ fontSize: 12, margin: '6px 0', color: 'var(--text-secondary, #666)' }}>
+                      Acesse o portal, localize a nota e cancele manualmente. Depois, marque como cancelada aqui.
+                    </p>
+                    {cancelPortalInfo.chaveAcesso && (
+                      <div style={{ fontSize: 12, margin: '8px 0' }}>
+                        <span style={{ fontWeight: 600 }}>Chave de Acesso: </span>
+                        <code style={{ background: 'var(--bg-tertiary, #e9ecef)', padding: '2px 6px', borderRadius: 4, fontSize: 11, wordBreak: 'break-all' }}>
+                          {cancelPortalInfo.chaveAcesso}
+                        </code>
+                        <button
+                          className="btn btn--ghost"
+                          style={{ fontSize: 11, padding: '2px 6px', marginLeft: 4 }}
+                          onClick={() => { navigator.clipboard.writeText(cancelPortalInfo.chaveAcesso); alert('Chave copiada!') }}
+                        >Copiar</button>
+                      </div>
+                    )}
+                    <a
+                      href={cancelPortalInfo.portalUrl}
+                      target="_blank" rel="noopener noreferrer"
+                      className="btn btn--solid"
+                      style={{ fontSize: 12, padding: '6px 12px', marginTop: 4 }}
+                    >Abrir Portal NFS-e</a>
+                  </div>
+                  <div style={{ background: 'var(--bg-secondary, #f8f9fa)', borderRadius: 8, padding: 12 }}>
+                    <strong style={{ fontSize: 13 }}>Opcao 2: Cancelar apenas no sistema</strong>
+                    <p style={{ fontSize: 12, margin: '6px 0', color: 'var(--text-secondary, #666)' }}>
+                      Marca a nota como CANCELADA no sistema, sem alterar o status na prefeitura. Use apos cancelar manualmente no portal.
+                    </p>
+                  </div>
+                </>
+              )}
             </div>
             <footer className="modal-card__footer" style={{ display: 'flex', gap: 8 }}>
-              <button className="btn btn--danger" onClick={handleCancelar} disabled={cancelLoading || !cancelMotivo.trim()}>
-                {cancelLoading ? 'Cancelando...' : 'Confirmar Cancelamento'}
-              </button>
-              <button className="btn btn--ghost" onClick={() => setCancelModal(null)}>Voltar</button>
+              {!cancelPortalInfo ? (
+                <>
+                  <button className="btn btn--danger" onClick={() => handleCancelar()} disabled={cancelLoading || !cancelMotivo.trim()}>
+                    {cancelLoading ? 'Cancelando...' : 'Cancelar NFS-e'}
+                  </button>
+                  <button className="btn btn--ghost" onClick={() => { setCancelModal(null); setCancelPortalInfo(null) }}>Voltar</button>
+                </>
+              ) : (
+                <>
+                  <button className="btn btn--danger" onClick={handleCancelarLocal} disabled={cancelLoading}>
+                    {cancelLoading ? 'Cancelando...' : 'Marcar como Cancelada'}
+                  </button>
+                  <button className="btn btn--ghost" onClick={() => { setCancelModal(null); setCancelPortalInfo(null) }}>Fechar</button>
+                </>
+              )}
             </footer>
           </div>
         </div>

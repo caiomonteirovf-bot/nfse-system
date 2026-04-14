@@ -306,3 +306,54 @@ export async function fetchXmlLogDetail(id) {
   const response = await request(`/xml-logs/${id}`)
   return response.data
 }
+
+// --- Fator R ---
+export async function fetchFaturamento(filters = {}) {
+  const p = new URLSearchParams()
+  if (filters.cnpj) p.set('cnpj', filters.cnpj)
+  if (filters.clienteId) p.set('cliente_id', filters.clienteId)
+  if (filters.ano) p.set('ano', filters.ano)
+  const r = await request(`/fator-r/faturamento?${p}`)
+  return r.data
+}
+export async function upsertFaturamento(payload) {
+  const r = await request('/fator-r/faturamento', { method: 'POST', body: JSON.stringify(payload) })
+  return r.data
+}
+export async function deleteFaturamento(id) {
+  await request(`/fator-r/faturamento/${id}`, { method: 'DELETE' })
+}
+export async function importarNfsesFaturamento(payload) {
+  const r = await request('/fator-r/faturamento/importar-nfses', { method: 'POST', body: JSON.stringify(payload) })
+  return r.data
+}
+export async function fetchFolha(filters = {}) {
+  const p = new URLSearchParams()
+  if (filters.cnpj) p.set('cnpj', filters.cnpj)
+  if (filters.clienteId) p.set('cliente_id', filters.clienteId)
+  if (filters.ano) p.set('ano', filters.ano)
+  const r = await request(`/fator-r/folha?${p}`)
+  return r.data
+}
+export async function upsertFolha(payload) {
+  const r = await request('/fator-r/folha', { method: 'POST', body: JSON.stringify(payload) })
+  return r.data
+}
+export async function deleteFolha(id) {
+  await request(`/fator-r/folha/${id}`, { method: 'DELETE' })
+}
+export async function calcularFatorR(payload) {
+  const r = await request('/fator-r/calcular', { method: 'POST', body: JSON.stringify(payload) })
+  return r.data
+}
+export async function fetchFatorRHistorico(filters = {}) {
+  const p = new URLSearchParams()
+  if (filters.cnpj) p.set('cnpj', filters.cnpj)
+  if (filters.clienteId) p.set('cliente_id', filters.clienteId)
+  const r = await request(`/fator-r/historico?${p}`)
+  return r.data
+}
+export async function fetchFatorRResumo() {
+  const r = await request('/fator-r/resumo')
+  return r.data
+}

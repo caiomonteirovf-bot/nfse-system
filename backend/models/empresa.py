@@ -10,6 +10,7 @@ Os dados cadastrais (razão social, endereço) vêm do Gesthub.
 As credenciais OAuth da Nuvem Fiscal ficam no PrestadorConfig (global).
 """
 
+import json
 from datetime import datetime
 from sqlalchemy import String, Float, Integer, Boolean, DateTime, LargeBinary, Text
 from sqlalchemy.orm import Mapped, mapped_column
@@ -59,6 +60,9 @@ class Empresa(Base):
     regime_especial: Mapped[int] = mapped_column(Integer, default=0)
     incentivo_fiscal: Mapped[bool] = mapped_column(Boolean, default=False)
 
+    # Lista de servicos (JSON): [{"cnae": "6920601", "cTribMun": "501", "cTribNac": "171901", "descricao": "Contabilidade", "aliquota": 5.0}]
+    servicos_json: Mapped[str] = mapped_column(Text, default="[]")
+
     # Status Nuvem Fiscal
     nuvem_fiscal_cadastrada: Mapped[bool] = mapped_column(Boolean, default=False)
     nuvem_fiscal_nfse_config: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -107,6 +111,8 @@ class Empresa(Base):
             "optanteSimples": bool(self.optante_simples),
             "regimeEspecial": self.regime_especial or 0,
             "incentivoFiscal": bool(self.incentivo_fiscal),
+            # Servicos
+            "servicos": json.loads(self.servicos_json) if self.servicos_json else [],
             # Nuvem Fiscal status
             "nuvemFiscalCadastrada": bool(self.nuvem_fiscal_cadastrada),
             "nuvemFiscalNfseConfig": bool(self.nuvem_fiscal_nfse_config),

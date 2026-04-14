@@ -147,11 +147,12 @@ async def configurar_nfse_empresa(db: Session) -> dict:
     # opSimpNac: 1=Não optante, 2=Optante excesso sublimite, 3=ME/EPP Simples
     op_simp_nac = 3 if config.optante_simples else 1
 
+    reg_esp = config.regime_especial if hasattr(config, "regime_especial") and config.regime_especial else 0
     payload = {
         "ambiente": ambiente,
         "regTrib": {
             "opSimpNac": op_simp_nac,
-            "regEspTrib": 0,
+            "regEspTrib": reg_esp,
         },
     }
 
@@ -235,6 +236,7 @@ async def configurar_nfse_por_cnpj(db: Session, empresa) -> dict:
     nuvem = _get_nuvem_config(config)
     ambiente = "producao" if nuvem["ambiente"] == "producao" else "homologacao"
     op_simp_nac = 3 if empresa.optante_simples else 1
+    reg_esp = empresa.regime_especial if empresa.regime_especial else 0
 
     payload = {
         "ambiente": ambiente,
@@ -243,15 +245,8 @@ async def configurar_nfse_por_cnpj(db: Session, empresa) -> dict:
             "serie": empresa.serie_rps or "1",
             "numero": empresa.ultimo_rps or 0,
         },
+        "regTrib": {"opSimpNac": op_simp_nac, "regEspTrib": reg_esp},
     }
-    # Só incluir regTrib se tem regime especial > 0
-    if empresa.regime_especial and empresa.regime_especial > 0:
-        payload["regTrib"] = {
-            "opSimpNac": op_simp_nac,
-            "regEspTrib": empresa.regime_especial,
-        }
-    else:
-        payload["regTrib"] = {"opSimpNac": op_simp_nac}
 
     async with httpx.AsyncClient(timeout=30) as client:
         resp = await client.put(f"{base_url}/empresas/{cnpj}/nfse", headers=headers, json=payload)
@@ -356,16 +351,14 @@ def _build_dps_payload(nfse: Nfse, config: PrestadorConfig, prestador_data: dict
         if getattr(t, "telefone", ""):
             toma["fone"] = t.telefone
 
-        # Endereço nacional
+        # Endereço nacional — só incluir se cMun estiver presente (obrigatório para XSD)
         logradouro = getattr(t, "logradouro", "") or ""
         cod_mun = getattr(t, "codigo_municipio", "") or ""
-        if logradouro or cod_mun:
-            end_nac = {}
-            if cod_mun:
-                end_nac["cMun"] = cod_mun
+        if cod_mun:
+            end_nac = {"cMun": cod_mun}
             if getattr(t, "cep", ""):
                 end_nac["CEP"] = t.cep.replace("-", "")
-            end = {"endNac": end_nac} if end_nac else {}
+            end = {"endNac": end_nac}
             if logradouro:
                 end["xLgr"] = logradouro
             if getattr(t, "numero_endereco", ""):
@@ -374,8 +367,7 @@ def _build_dps_payload(nfse: Nfse, config: PrestadorConfig, prestador_data: dict
                 end["xCpl"] = t.complemento
             if getattr(t, "bairro", ""):
                 end["xBairro"] = t.bairro
-            if end:
-                toma["end"] = end
+            toma["end"] = end
     else:
         # Sem tomador vinculado — usa email da NFS-e se disponível
         if nfse.tomador_email:
@@ -536,7 +528,11 @@ async def emitir_nfse(db: Session, nfse_ids: list[int], prestador_data: dict | N
                     nfse.origem = "EMITIDA"
                     # Nuvem Fiscal retorna id do documento
                     nfse.protocolo = data.get("id", "")
-                    nfse.chave_acesso = data.get("chave_acesso", data.get("id", ""))
+                    nfse.chave_acesso = (
+                        data.get("codigo_verificacao")
+                        or data.get("chave_acesso")
+                        or data.get("id", "")
+                    )
                     # Número real da NFS-e (pode vir em vários campos)
                     num_real = (
                         data.get("numero_nfse")
@@ -550,7 +546,9 @@ async def emitir_nfse(db: Session, nfse_ids: list[int], prestador_data: dict | N
                         or (data.get("nfse", {}) or {}).get("codigo_verificacao")
                         or ""
                     )
-                    nfse.data_emissao = date.today()
+                    if data.get("link_url"):
+                        nfse.link_url = data["link_url"]
+                    nfse.data_emissao = datetime.now(BRT).date()
                     if data.get("valor_iss"):
                         nfse.valor_iss = float(data["valor_iss"])
                     # Gravar CNPJ do prestador na NFS-e
@@ -582,10 +580,17 @@ async def emitir_nfse(db: Session, nfse_ids: list[int], prestador_data: dict | N
                                     if status_data.get("numero"):
                                         nfse.numero = str(status_data["numero"])
                                         numero_encontrado = True
-                                    if status_data.get("chave_acesso"):
-                                        nfse.chave_acesso = status_data["chave_acesso"]
-                                    if status_data.get("codigo_verificacao"):
-                                        nfse.codigo_verificacao = status_data["codigo_verificacao"]
+                                    cod_verif = (
+                                        status_data.get("codigo_verificacao")
+                                        or status_data.get("chave_acesso")
+                                        or ""
+                                    )
+                                    if cod_verif:
+                                        nfse.chave_acesso = cod_verif
+                                        nfse.codigo_verificacao = cod_verif
+                                    # Link de consulta pública
+                                    if status_data.get("link_url"):
+                                        nfse.link_url = status_data["link_url"]
                                     if numero_encontrado:
                                         break
                             except Exception:
@@ -712,8 +717,7 @@ async def cancelar_nfse(db: Session, nuvem_fiscal_id: str, motivo: str = "Cancel
     except ValueError as e:
         return {"ok": False, "error": str(e)}
 
-    # API Nuvem Fiscal aceita body vazio para cancelamento
-    payload = {}
+    payload = {"justificativa": motivo}
 
     async with httpx.AsyncClient(timeout=30) as client:
         resp = await client.post(
@@ -721,12 +725,22 @@ async def cancelar_nfse(db: Session, nuvem_fiscal_id: str, motivo: str = "Cancel
             headers=headers, json=payload
         )
 
+        sucesso = resp.status_code in (200, 201, 202)
         _log_xml(db, None, "NUVEM_FISCAL_CANCELAR", str(payload), resp.text[:5000],
-                 resp.status_code, "", False,
+                 resp.status_code, "", sucesso,
                  f"Cancelamento Nuvem Fiscal {nuvem_fiscal_id}")
 
-        if resp.status_code not in (200, 201, 202):
-            return {"ok": False, "error": f"HTTP {resp.status_code}: {resp.text[:300]}"}
+        if not sucesso:
+            error_text = resp.text[:300]
+            # Detectar "serviço não implementado" — Nuvem Fiscal não suporta
+            # cancelamento para NFS-e Nacional em alguns provedores
+            if "não implementado" in error_text.lower() or "not implemented" in error_text.lower():
+                return {
+                    "ok": False,
+                    "error": "Cancelamento via API não implementado para este provedor/município.",
+                    "nao_implementado": True,
+                }
+            return {"ok": False, "error": f"HTTP {resp.status_code}: {error_text}"}
 
         data = resp.json()
         status = data.get("status", "")
@@ -734,7 +748,15 @@ async def cancelar_nfse(db: Session, nuvem_fiscal_id: str, motivo: str = "Cancel
 
         # Verifica se o cancelamento realmente foi aceito
         if status == "erro" and mensagens:
-            msg = mensagens[0].get("descricao", "Erro desconhecido")
+            msg_list = [m.get("descricao", str(m)) for m in mensagens[:3]]
+            msg = "; ".join(msg_list)
+            # Detectar "não implementado" também no body de resposta
+            if "não implementado" in msg.lower() or "not implemented" in msg.lower():
+                return {
+                    "ok": False,
+                    "error": f"Cancelamento via API não disponível: {msg}",
+                    "nao_implementado": True,
+                }
             return {"ok": False, "error": f"Cancelamento rejeitado: {msg}"}
 
         return {"ok": True, "data": data}
@@ -764,6 +786,44 @@ async def listar_nfse_api(db: Session, cnpj: str = None, pagina: int = 1) -> dic
         if resp.status_code == 200:
             return {"ok": True, "data": resp.json()}
         return {"ok": False, "error": f"HTTP {resp.status_code}: {resp.text[:300]}"}
+
+
+# ============================================
+# CEP — Consulta endereço + código IBGE
+# ============================================
+
+async def consultar_cep(db: Session, cep: str) -> dict:
+    """Consulta CEP via Nuvem Fiscal e retorna endereço + código IBGE."""
+    config = db.query(PrestadorConfig).first()
+    if not config:
+        return {"ok": False, "error": "Config não encontrada."}
+
+    try:
+        base_url, headers = await _authed_client(config)
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}
+
+    cep_limpo = cep.replace("-", "").replace(".", "").strip()
+    if len(cep_limpo) != 8:
+        return {"ok": False, "error": "CEP inválido."}
+
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.get(f"{base_url}/cep/{cep_limpo}", headers=headers)
+        if resp.status_code == 200:
+            data = resp.json()
+            return {
+                "ok": True,
+                "data": {
+                    "cep": data.get("cep", cep_limpo),
+                    "logradouro": data.get("logradouro", ""),
+                    "complemento": data.get("complemento", ""),
+                    "bairro": data.get("bairro", ""),
+                    "cidade": data.get("municipio", "") or data.get("cidade", ""),
+                    "uf": data.get("uf", ""),
+                    "codigo_municipio": data.get("codigo_ibge", "") or data.get("ibge", ""),
+                },
+            }
+        return {"ok": False, "error": f"CEP não encontrado: {resp.status_code}"}
 
 
 # ============================================

@@ -57,6 +57,7 @@ export const SIDEBAR_ITEMS = [
     { id: 'dashboard', label: 'Dashboard', icon: 'chart' },
     { id: 'notas', label: 'Notas Fiscais', icon: 'file' },
     { id: 'tomadores', label: 'Tomadores', icon: 'users' },
+    { id: 'fatorR', label: 'Fator R', icon: 'calc' },
   ]},
   { group: 'OPERACAO', items: [
     { id: 'captura', label: 'Captura NFS-e', icon: 'download' },

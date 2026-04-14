@@ -9,6 +9,7 @@ import Emissao from './pages/Emissao'
 import Configuracoes from './pages/Configuracoes'
 import XmlHistorico from './pages/XmlHistorico'
 import Captura from './pages/Captura'
+import FatorR from './pages/FatorR'
 import './App.css'
 
 // ── Platform Switcher ─────────────────────────────────────────
@@ -54,6 +55,7 @@ const PAGE_LABELS = {
   dashboard: 'Dashboard',
   notas: 'Notas Fiscais',
   tomadores: 'Tomadores',
+  fatorR: 'Fator R',
   captura: 'Captura NFS-e',
   importar: 'Importar',
   emissao: 'Emissao NFS-e',
@@ -70,6 +72,7 @@ const ICONS = {
   send: <><line x1="14" y1="2" x2="7" y2="9"/><polygon points="14 2 9 14 7 9 2 7 14 2"/></>,
   code: <><polyline points="4 6 1 8 4 10"/><polyline points="12 6 15 8 12 10"/><line x1="10" y1="3" x2="6" y2="13"/></>,
   settings: <><circle cx="8" cy="8" r="2.5"/><path d="M8 1v1.5M8 13.5V15M1 8h1.5M13.5 8H15M3 3l1.06 1.06M11.94 11.94L13 13M3 13l1.06-1.06M11.94 4.06L13 3"/></>,
+  calc: <><rect x="2.5" y="1.5" width="11" height="13" rx="1.5"/><line x1="5" y1="4.5" x2="11" y2="4.5"/><line x1="5" y1="8" x2="5.5" y2="8"/><line x1="8" y1="8" x2="8.5" y2="8"/><line x1="11" y1="8" x2="11.5" y2="8"/><line x1="5" y1="11" x2="5.5" y2="11"/><line x1="8" y1="11" x2="8.5" y2="11"/><line x1="11" y1="11" x2="11.5" y2="11"/></>,
 }
 
 export default function App() {
@@ -118,6 +121,7 @@ export default function App() {
       case 'dashboard': return <Dashboard clienteId={clienteAtivo?.id} clienteDoc={clienteAtivo?.document} />
       case 'notas': return <NotasFiscais tomadores={tomadores} onRefresh={loadBootstrap} clienteAtivo={clienteAtivo} onNavigate={setActivePage} />
       case 'tomadores': return <Tomadores onRefresh={loadBootstrap} />
+      case 'fatorR': return <FatorR clienteAtivo={clienteAtivo} />
       case 'importar': return <Importar clienteAtivo={clienteAtivo} />
       case 'captura': return <Captura />
       case 'emissao': return <Emissao prestador={prestador} clienteAtivo={clienteAtivo} />
