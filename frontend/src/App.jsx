@@ -18,10 +18,12 @@ const PLATFORMS = [
   { id: 'nfse', label: 'NFS-e System', color: '#22C55E' },
   { id: 'finance', label: 'Átrio Finance', color: '#7F77DD' },
 ]
-const PLATFORM_PORTS = { gesthub: 8000, nfse: 3020, finance: 3000 }
+const PLATFORM_PORTS = { gesthub: 80, nfse: 3020, finance: 3000 }
 function platformUrl(id) {
   if (id === PLATFORM_CURRENT) return null
-  return `${window.location.protocol}//${window.location.hostname}:${PLATFORM_PORTS[id]}`
+  const port = PLATFORM_PORTS[id]
+  const portSuffix = (port === 80 || port === 443) ? '' : `:${port}`
+  return `${window.location.protocol}//${window.location.hostname}${portSuffix}`
 }
 function PlatformBar() {
   return (

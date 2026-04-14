@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
@@ -120,7 +120,7 @@ async def pdf_nfse_nuvem(nuvem_id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/nuvem-fiscal/cancelar/{nuvem_id}")
-async def cancelar_nfse_nuvem(nuvem_id: str, body: dict = None, db: Session = Depends(get_db)):
+async def cancelar_nfse_nuvem(nuvem_id: str, body: dict = Body(default={}), db: Session = Depends(get_db)):
     """Cancela NFS-e via Nuvem Fiscal."""
     motivo = (body or {}).get("motivo", "Cancelamento solicitado")
     result = await nuvem_fiscal.cancelar_nfse(db, nuvem_id, motivo)
@@ -251,32 +251,46 @@ async def listar_nfse_nuvem(pagina: int = 1, db: Session = Depends(get_db)):
 # ============================================
 
 @router.post("/{nfse_id}/cancelar")
-async def cancelar_nfse_unificado(nfse_id: int, body: dict = None, db: Session = Depends(get_db)):
-    """Cancela NFS-e — tenta Nuvem Fiscal primeiro, depois ABRASF."""
+async def cancelar_nfse_unificado(nfse_id: int, body: dict = Body(default={}), db: Session = Depends(get_db)):
+    """Cancela NFS-e — tenta Nuvem Fiscal primeiro, fallback local se API não suporta."""
     nfse = db.query(Nfse).filter(Nfse.id == nfse_id).first()
     if not nfse:
         raise HTTPException(status_code=404, detail="NFS-e não encontrada.")
 
-    # Se tem protocolo Nuvem Fiscal, cancela por lá
-    if nfse.protocolo and nfse.origem == "EMITIDA":
-        motivo = (body or {}).get("motivo", "Cancelamento solicitado")
+    motivo = (body or {}).get("motivo", "Cancelamento solicitado")
+    force_local = (body or {}).get("forceLocal", False)
+
+    # Se tem protocolo Nuvem Fiscal e não é forceLocal, tenta cancelar via API
+    if nfse.protocolo and nfse.origem == "EMITIDA" and not force_local:
         result = await nuvem_fiscal.cancelar_nfse(db, nfse.protocolo, motivo)
         if result.get("ok"):
             nfse.status = "CANCELADA"
+            nfse.mensagem_retorno = f"Cancelada via Nuvem Fiscal. Motivo: {motivo}"
             db.commit()
             return result
-        # Nuvem Fiscal falhou — retorna erro claro, NÃO muda status local
-        raise HTTPException(status_code=400, detail=result.get("error", "Erro ao cancelar na Nuvem Fiscal."))
+        # Se o erro é "não implementado", retorna info para cancelamento manual
+        if result.get("nao_implementado"):
+            chave = nfse.chave_acesso or nfse.codigo_verificacao or ""
+            link = getattr(nfse, "link_url", "") or ""
+            portal_url = "https://www.nfse.gov.br/EmissorNacional/Notas/Emitidas"
+            return {
+                "ok": False,
+                "error": result.get("error", ""),
+                "canForceLocal": True,
+                "chaveAcesso": chave,
+                "linkConsulta": link,
+                "portalUrl": portal_url,
+                "message": (
+                    "O cancelamento via API não está disponível para este município. "
+                    "Você pode cancelar manualmente no Portal NFS-e ou marcar como cancelada localmente."
+                ),
+            }
+        error_msg = result.get("error", "")
+        raise HTTPException(status_code=400, detail=error_msg or "Erro ao cancelar na Nuvem Fiscal.")
 
-    # Notas sem protocolo Nuvem Fiscal: cancela só local ou tenta ABRASF
-    if not nfse.protocolo:
-        nfse.status = "CANCELADA"
-        db.commit()
-        return {"ok": True, "data": {"message": "Cancelado localmente (sem protocolo Nuvem Fiscal)."}}
-
-    # Fallback ABRASF
-    config = get_prestador_config(db)
-    result = await cancelar_nfse_abrasf(db, nfse_id, config)
-    if not result.get("ok"):
-        raise HTTPException(status_code=400, detail=result.get("error", "Erro ao cancelar."))
-    return result
+    # Cancelamento local (sem protocolo ou forceLocal)
+    nfse.status = "CANCELADA"
+    nfse.mensagem_retorno = f"Cancelada localmente. Motivo: {motivo}"
+    db.commit()
+    msg = "Cancelada localmente" + (" (API não disponível para este município)" if force_local else "")
+    return {"ok": True, "data": {"message": msg}}
